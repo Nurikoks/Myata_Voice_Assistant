@@ -12,7 +12,7 @@ from vosk import KaldiRecognizer, Model
 
 MODEL_PATH = "vosk-model-small-ru-0.22"
 SAMPLE_RATE = 16000
-WAKE_WORDS = ["мята", "миата", "ята", "Матя"]  # как Vosk может его "услышать"
+WAKE_WORDS = ["мята", "миата", "ята", "матя"]  # как Vosk может его "услышать"
 LISTEN_WINDOW = 6       # сколько секунд ждать команду после одного "Джарвис"
 MATCH_THRESHOLD = 0.6   # насколько фраза должна быть похожа на команду (0..1)
 
