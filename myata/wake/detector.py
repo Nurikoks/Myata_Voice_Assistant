@@ -1,7 +1,8 @@
 """Finds the assistant's name in a recognized phrase.
 
-Stage 1 keeps the old logic (fuzzy match of every word). Stage 3 replaces it
-with a Vosk grammar that only knows the wake word, which is far more precise.
+The Vosk spotter (wake/spotter.py) wakes Myata up cheaply. Whisper then
+transcribes the phrase and this detector checks that the name is really there,
+which filters out false alarms like "мать" that the small Vosk model hears as "мята".
 """
 
 from __future__ import annotations
@@ -23,7 +24,14 @@ class WakeWordDetector:
         return max(similarity(word, w) for w in self._words) >= self._threshold
 
     def split(self, text: str) -> tuple[bool, str]:
-        """Return (was the name said, the rest of the phrase without the name)."""
+        """Return (was the name said, the command after the name).
+
+        Words before the name are dropped: in voice mode they are usually the
+        end of an earlier phrase that got into the pre-roll buffer.
+        """
         words = normalize(text).split()
-        rest = [w for w in words if not self.is_wake(w)]
-        return len(rest) != len(words), " ".join(rest)
+        for i, word in enumerate(words):
+            if self.is_wake(word):
+                rest = [w for w in words[i + 1 :] if not self.is_wake(w)]
+                return True, " ".join(rest)
+        return False, " ".join(words)

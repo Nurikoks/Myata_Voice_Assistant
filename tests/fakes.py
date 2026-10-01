@@ -160,3 +160,81 @@ def make_assistant(os_layer: FakeOS | None = None, llm=None, extra_skills=()):
         output=lambda _text: None,
     )
     return assistant, tts, os_layer, clock
+
+
+# ---------- voice loop doubles ----------
+
+SPEECH = 8000  # int16 amplitude the fake VAD treats as speech
+FRAME = 512
+
+
+def pcm(level: int, ms: int, rate: int = 16000) -> bytes:
+    """Raw 16-bit audio of constant level: loud enough = speech, 0 = silence."""
+    import numpy as np
+
+    return np.full(rate * ms // 1000, level, dtype=np.int16).tobytes()
+
+
+class FakeVad:
+    """Speech when the frame is loud, silence otherwise."""
+
+    def __init__(self) -> None:
+        self.resets = 0
+
+    def probability(self, frame) -> float:
+        return 1.0 if abs(float(frame.mean())) > 0.1 else 0.0
+
+    def reset(self) -> None:
+        self.resets += 1
+
+
+class FakeMic:
+    def __init__(self) -> None:
+        self.muted = False
+        self.mutes = 0
+
+    def read(self, timeout: float = 0.5):
+        return None
+
+    def mute(self) -> None:
+        self.muted = True
+        self.mutes += 1
+
+    def unmute(self) -> None:
+        self.muted = False
+
+
+class FakeSpotter:
+    """Fires on any loud block while armed (arm() = the user said the wake word)."""
+
+    def __init__(self) -> None:
+        self.armed = False
+        self.resets = 0
+
+    def arm(self) -> None:
+        self.armed = True
+
+    def accept(self, chunk: bytes) -> bool:
+        import numpy as np
+
+        loud = np.abs(np.frombuffer(chunk, dtype=np.int16)).mean() > SPEECH / 2
+        if self.armed and loud:
+            self.armed = False
+            return True
+        return False
+
+    def reset(self) -> None:
+        self.resets += 1
+
+
+class FakeSTT:
+    def __init__(self, mic: FakeMic, *texts: str) -> None:
+        self.texts = list(texts)
+        self.mic = mic
+        self.muted_while_busy: list[bool] = []
+        self.lengths: list[int] = []
+
+    def transcribe(self, audio) -> str:
+        self.muted_while_busy.append(self.mic.muted)
+        self.lengths.append(len(audio))
+        return self.texts.pop(0)

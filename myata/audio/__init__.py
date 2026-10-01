@@ -1,1 +1,1 @@
-"""Microphone input."""
+"""Microphone input and speaker output."""

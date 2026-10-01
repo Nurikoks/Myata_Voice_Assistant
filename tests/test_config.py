@@ -12,6 +12,10 @@ def test_repo_config_is_valid():
     assert config.assistant.name == "Мята"
     assert any(app.name == "league_of_legends" for app in config.apps)
     assert "{name}" in config.llm.system_prompt
+    assert config.wake.words == ("мята",)
+    assert config.tts.engine == "silero"
+    assert config.tts.silero.model_path.endswith("v5_ru.pt")
+    assert config.tts.replacements["VS Code"] == "вэ эс код"
 
 
 def test_defaults_without_file_content():
@@ -40,3 +44,20 @@ def test_unknown_os_in_app():
     app = {"name": "x", "phrases": ["x"], "reply": "x", "commands": {"macos": ["x"]}}
     with pytest.raises(ConfigError):
         config_from_dict({"apps": [app]})
+
+
+def test_sample_rate_must_be_16k():
+    with pytest.raises(ConfigError):
+        config_from_dict({"audio": {"sample_rate": 44100}})
+
+
+def test_unknown_tts_engine_and_device():
+    with pytest.raises(ConfigError):
+        config_from_dict({"tts": {"engine": "festival"}})
+    with pytest.raises(ConfigError):
+        config_from_dict({"stt": {"device": "tpu"}})
+
+
+def test_initial_prompt_can_be_null_or_text():
+    assert config_from_dict({"stt": {"initial_prompt": None}}).stt.initial_prompt is None
+    assert config_from_dict({"stt": {"initial_prompt": "Мята"}}).stt.initial_prompt == "Мята"

@@ -56,8 +56,12 @@ class AssistantConfig:
 
 @dataclass(frozen=True)
 class WakeConfig:
-    words: tuple[str, ...] = ("мята", "миата", "ята", "матя")
-    threshold: float = 0.75
+    # Vosk listens only for these words (a grammar). Whisper then has to hear one of them
+    # too, compared with the fuzzy threshold below, before the phrase reaches the assistant.
+    words: tuple[str, ...] = ("мята",)
+    threshold: float = 0.85
+    vosk_model_path: str = "models/vosk-model-small-ru-0.22"
+    preroll_sec: float = 1.0
 
 
 @dataclass(frozen=True)
@@ -86,20 +90,71 @@ class LlmConfig:
 @dataclass(frozen=True)
 class AudioConfig:
     sample_rate: int = 16000
-    block_size: int = 8000
+    block_size: int = 1600
     device: int | str | None = None
+    output_device: int | str | None = None
+    unmute_delay_sec: float = 0.2
+
+
+@dataclass(frozen=True)
+class VadConfig:
+    model_path: str = "models/silero/silero_vad.jit"
+    threshold: float = 0.5
+    silence_ms: int = 700
+    min_speech_ms: int = 200
+    start_timeout_sec: float = 5.0
+    max_phrase_sec: float = 15.0
+
+
+DEFAULT_HALLUCINATIONS = (
+    "продолжение следует",
+    "субтитры сделал",
+    "субтитры создавал",
+    "редактор субтитров",
+    "спасибо за просмотр",
+    "подписывайтесь на канал",
+    "dimatorzok",
+)
 
 
 @dataclass(frozen=True)
 class SttConfig:
-    vosk_model_path: str = "models/vosk-model-small-ru-0.22"
+    model: str = "models/whisper-large-v3-turbo"
+    download_root: str = "models/whisper"
+    device: str = "cuda"
+    compute_type: str = "int8_float16"
+    cpu_compute_type: str = "int8"
+    cpu_fallback: bool = True
+    language: str = "ru"
+    beam_size: int = 5
+    initial_prompt: str | None = None
+    hallucinations: tuple[str, ...] = DEFAULT_HALLUCINATIONS
+
+
+@dataclass(frozen=True)
+class SileroTtsConfig:
+    model_path: str = "models/silero/v5_ru.pt"
+    speaker: str = "xenia"
+    sample_rate: int = 48000
+    threads: int = 4
+    put_accent: bool = True
+    put_yo: bool = True
+    put_stress_homo: bool = True
+    put_yo_homo: bool = True
+
+
+@dataclass(frozen=True)
+class Pyttsx3Config:
+    rate: int = 180
+    voice_hints: tuple[str, ...] = ("ru", "irina", "russian")
 
 
 @dataclass(frozen=True)
 class TtsConfig:
-    engine: str = "pyttsx3"
-    rate: int = 180
-    voice_hints: tuple[str, ...] = ("ru", "irina", "russian")
+    engine: str = "silero"
+    replacements: dict[str, str] = field(default_factory=dict)
+    silero: SileroTtsConfig = field(default_factory=SileroTtsConfig)
+    pyttsx3: Pyttsx3Config = field(default_factory=Pyttsx3Config)
 
 
 @dataclass(frozen=True)
@@ -134,6 +189,7 @@ class Config:
     router: RouterConfig = field(default_factory=RouterConfig)
     llm: LlmConfig = field(default_factory=LlmConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
+    vad: VadConfig = field(default_factory=VadConfig)
     stt: SttConfig = field(default_factory=SttConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
@@ -142,7 +198,9 @@ class Config:
 
 
 KNOWN_OS = {"windows", "linux"}
-TTS_ENGINES = {"pyttsx3", "none"}
+TTS_ENGINES = {"silero", "pyttsx3", "none"}
+STT_DEVICES = {"cuda", "cpu"}
+SAMPLE_RATE = 16000  # Silero VAD and Whisper both want 16 kHz mono
 
 
 def load_config(path: str | Path) -> Config:
@@ -168,6 +226,7 @@ def _validate(config: Config) -> None:
     for where, value in (
         ("wake.threshold", config.wake.threshold),
         ("router.threshold", config.router.threshold),
+        ("vad.threshold", config.vad.threshold),
     ):
         if not 0.0 <= value <= 1.0:
             raise ConfigError(f"{where} must be between 0 and 1, got {value}")
@@ -175,6 +234,14 @@ def _validate(config: Config) -> None:
         raise ConfigError("llm.history_turns must be >= 0 and llm.max_reply_chars >= 20")
     if config.tts.engine not in TTS_ENGINES:
         raise ConfigError(f"tts.engine must be one of {sorted(TTS_ENGINES)}")
+    if config.stt.device not in STT_DEVICES:
+        raise ConfigError(f"stt.device must be one of {sorted(STT_DEVICES)}")
+    if config.audio.sample_rate != SAMPLE_RATE:
+        raise ConfigError(f"audio.sample_rate must be {SAMPLE_RATE}")
+    if not config.wake.words:
+        raise ConfigError("wake.words needs at least one word")
+    if config.audio.block_size <= 0 or config.vad.silence_ms <= 0:
+        raise ConfigError("audio.block_size and vad.silence_ms must be positive")
     for app in config.apps:
         unknown = set(app.commands) - KNOWN_OS
         if unknown:

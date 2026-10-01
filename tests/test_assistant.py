@@ -96,3 +96,27 @@ def test_confirmation_expires():
     clock.now += 60
     assistant.handle_command("да")                    # too late, treated as a new command
     assert calls == []
+
+
+def test_reply_window_after_a_bare_name():
+    assistant, _, os_layer, clock = make_assistant()
+    assert assistant.reply_window == 0
+    assistant.on_utterance("мята")
+    assert assistant.reply_window == 6
+    clock.now += 10                                   # slow answer: the loop already decided
+    assert assistant.on_reply("открой ютуб") is Outcome.HANDLED
+    assert os_layer.opened == ["https://youtube.com"]
+    assert assistant.reply_window == 0
+
+
+def test_stop_waiting():
+    assistant, _, _, _ = make_assistant()
+    assistant.on_utterance("мята")
+    assistant.stop_waiting()
+    assert assistant.reply_window == 0
+
+
+def test_is_addressed():
+    assistant, _, _, _ = make_assistant()
+    assert assistant.is_addressed("Мята, который час?")
+    assert not assistant.is_addressed("Мать, который час?")

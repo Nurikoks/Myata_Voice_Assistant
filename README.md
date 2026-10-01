@@ -8,14 +8,31 @@ Simple commands run instantly. Free-form phrases ("закинь мне ютуб"
 
 > Work in progress. A full README with architecture diagram and demo comes in stage 5.
 
+## How the voice works
+
+1. A small Vosk model with a one-word grammar listens only for "мята".
+2. Silero VAD records the phrase until you stop talking (the last second before
+   the wake word is kept, so "мята, открой ютуб" in one breath is not cut).
+3. faster-whisper (large-v3-turbo, GPU) turns the phrase into text and checks
+   that the name is really there, which filters out false alarms.
+4. The fast router or the LLM decides what to do, Silero TTS answers.
+
+While Myata thinks or talks, the microphone is muted. If she asks a question
+or needs "да"/"нет", you can answer without saying her name.
+
 ## Setup (Windows)
 
 ```powershell
 py -3.13 -m venv .venv
 .venv\Scripts\Activate.ps1
 python -m pip install --upgrade pip
-pip install -e ".[dev]"
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[dev,voice]"
 ```
+
+torch is installed from the CPU index on purpose: Silero runs on the CPU, and
+Whisper uses the GPU through CTranslate2 with the `nvidia-cublas-cu12` and
+`nvidia-cudnn-cu12` packages, not through torch.
 
 Install [Ollama](https://ollama.com/download) and pull the model:
 
@@ -23,8 +40,19 @@ Install [Ollama](https://ollama.com/download) and pull the model:
 ollama pull qwen3.5:4b
 ```
 
-Download `vosk-model-small-ru-0.22` from https://alphacephei.com/vosk/models
-and unzip it to `models/vosk-model-small-ru-0.22`.
+Download the models into `models/`:
+
+```powershell
+New-Item -ItemType Directory -Force models\silero | Out-Null
+Invoke-WebRequest https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.jit -OutFile models\silero\silero_vad.jit
+Invoke-WebRequest https://models.silero.ai/models/tts/ru/v5_ru.pt -OutFile models\silero\v5_ru.pt
+python -c "from faster_whisper import download_model; download_model('large-v3-turbo', output_dir='models/whisper-large-v3-turbo')"
+```
+
+And `vosk-model-small-ru-0.22` from https://alphacephei.com/vosk/models,
+unzipped to `models/vosk-model-small-ru-0.22`.
+
+Silero TTS models are licensed CC BY-NC 4.0 (non-commercial use).
 
 ## Run
 
@@ -34,9 +62,11 @@ python -m myata --text          # type commands, no microphone needed
 python -m myata --text --speak  # type commands, hear the answers
 python -m myata --no-llm        # fast commands only, without Ollama
 python -m myata --list-skills   # show what Myata can do on this OS
+python -m myata --list-devices  # show microphones and speakers
 ```
 
-Settings, phrases, websites and apps are in `config.yaml`. Logs go to `logs/myata.log`.
+Settings, phrases, models, voice, websites and apps are in `config.yaml`.
+Logs go to `logs/myata.log`.
 
 ## Development
 
@@ -44,6 +74,8 @@ Settings, phrases, websites and apps are in `config.yaml`. Logs go to `logs/myat
 pytest
 ruff check .
 ```
+
+Tests need neither a microphone nor the voice models.
 
 ## Project layout
 
@@ -55,11 +87,12 @@ myata/
   core/         assistant logic (works on text only, easy to test)
   brain/        fast router, LLM client, dialog history, prompt
   skills/       skill registry, built-in skills, skills from config
-  wake/         wake word detection
-  stt/          speech to text (Vosk)
-  tts/          text to speech (pyttsx3)
-  audio/        microphone input
-  oslayer/      everything OS-specific (Windows, Linux)
+  voice/        voice loop state machine (wake, record, busy)
+  wake/         Vosk wake word spotter, wake word check in text
+  stt/          Silero VAD and faster-whisper
+  tts/          Silero TTS, pyttsx3 fallback, text normalization
+  audio/        microphone input with mute, speaker output
+  oslayer/      everything OS-specific (Windows, Linux, CUDA libraries)
 tests/          tests that run without a microphone
 ```
 

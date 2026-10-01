@@ -1,4 +1,4 @@
-"""Command line entry point: python -m myata [--text] [--speak] [--no-llm] [--list-skills]."""
+"""Command line entry point: python -m myata [--text] [--speak] [--no-llm] [--list-skills] ..."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import logging
 import sys
 
 from myata import __version__
-from myata.app import build_assistant, run_text, run_voice
+from myata.app import build_assistant, list_audio_devices, run_text, run_voice
 from myata.config import ConfigError, load_config
 from myata.logging_setup import setup_logging
 from myata.oslayer import UnsupportedOSError
@@ -22,6 +22,9 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--speak", action="store_true", help="in text mode, also say answers")
     parser.add_argument("--no-llm", action="store_true", help="fast commands only, no Ollama")
     parser.add_argument("--list-skills", action="store_true", help="print skills and exit")
+    parser.add_argument(
+        "--list-devices", action="store_true", help="print microphones and speakers and exit"
+    )
     parser.add_argument("--debug", action="store_true", help="show debug logs in the console")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
     return parser.parse_args(argv)
@@ -39,7 +42,9 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging(config.logging.level, console_level, config.logging.file)
 
     try:
-        if args.list_skills:
+        if args.list_devices:
+            list_audio_devices()
+        elif args.list_skills:
             _, registry = build_assistant(config, speak=False, use_llm=False)
             for item in registry:
                 flags = "".join(

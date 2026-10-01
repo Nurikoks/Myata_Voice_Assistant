@@ -17,9 +17,13 @@ assistant:
     cancelled: Отменяю
     brain_offline: Мой мозг сейчас не отвечает, сэр.
 
+# Wake word. Vosk listens only for these words (grammar), then Whisper must also hear one
+# of them (fuzzy match, threshold below), otherwise the phrase is a false alarm.
 wake:
-  words: [мята, миата, ята, матя]   # how Vosk may hear the name
-  threshold: 0.75
+  words: [мята]
+  threshold: 0.85             # 0.75 let "мать" through
+  vosk_model_path: models/vosk-model-small-ru-0.22
+  preroll_sec: 1.0            # audio kept before the wake word fired
 
 # Fast path: commands that clearly match an example phrase run instantly without the LLM.
 router:
@@ -53,17 +57,69 @@ llm:
     Сегодня {date}, сейчас {time}.
 
 audio:
-  sample_rate: 16000
-  block_size: 8000
-  device: null                # null = default microphone
+  sample_rate: 16000          # must be 16000 for Silero VAD and Whisper
+  block_size: 1600            # 100 ms per microphone block
+  device: null                # microphone, null = default (see: python -m myata --list-devices)
+  output_device: null         # speakers for the Silero voice, null = default
+  unmute_delay_sec: 0.2       # wait after Myata speaks, so she does not hear her own echo
 
+# End of phrase detection (Silero VAD)
+vad:
+  model_path: models/silero/silero_vad.jit
+  threshold: 0.5              # speech probability for one 32 ms frame
+  silence_ms: 700             # this much silence ends the phrase
+  min_speech_ms: 200          # shorter sounds are treated as noise
+  start_timeout_sec: 5        # after the wake word: give up if nothing is said
+  max_phrase_sec: 15
+
+# Speech recognition (faster-whisper)
 stt:
-  vosk_model_path: models/vosk-model-small-ru-0.22
+  model: models/whisper-large-v3-turbo   # local folder, or a name like large-v3-turbo
+  download_root: models/whisper          # where named models are downloaded
+  device: cuda                # cuda | cpu
+  compute_type: int8_float16  # about 1.5 GB of VRAM for large-v3-turbo
+  cpu_compute_type: int8
+  cpu_fallback: true          # switch to CPU if CUDA does not start
+  language: ru
+  beam_size: 5                # 1 is a bit faster, 5 is a bit more accurate
+  initial_prompt: null        # e.g. "Мята, открой ютуб, запусти дискорд." to bias the vocabulary
+  hallucinations:             # phrases Whisper invents on noise; such results are dropped
+    - продолжение следует
+    - субтитры сделал
+    - субтитры создавал
+    - редактор субтитров
+    - спасибо за просмотр
+    - подписывайтесь на канал
+    - dimatorzok
 
+# Speech synthesis
 tts:
-  engine: pyttsx3             # pyttsx3 | none
-  rate: 180
-  voice_hints: [ru, irina, russian]
+  engine: silero              # silero | pyttsx3 | none (pyttsx3 is also the automatic fallback)
+  silero:
+    model_path: models/silero/v5_ru.pt   # licence CC BY-NC 4.0
+    speaker: xenia            # aidar, baya, kseniya, xenia, eugene
+    sample_rate: 48000        # 8000 | 24000 | 48000
+    threads: 4                # CPU threads for synthesis
+    put_accent: true
+    put_yo: true
+    put_stress_homo: true
+    put_yo_homo: true
+  pyttsx3:
+    rate: 180
+    voice_hints: [ru, irina, russian]
+  # Silero reads only Cyrillic: Latin words are replaced before speaking.
+  replacements:
+    VS Code: вэ эс код
+    YouTube: ютуб
+    Discord: дискорд
+    Steam: стим
+    Chrome: хром
+    Google: гугл
+    Windows: виндоус
+    Linux: линукс
+    League of Legends: лига легенд
+    LLM: эл эл эм
+    Ollama: оллама
 
 logging:
   level: INFO                 # level for the log file

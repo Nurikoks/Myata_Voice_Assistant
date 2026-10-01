@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import time
 
 from myata.brain.brain import Brain
 from myata.brain.history import History
@@ -34,6 +35,14 @@ def build_assistant(
     else:
         log.info("LLM is off, only fast commands work")
 
+    if speak:
+        print("Загружаю голос...")
+        started = time.perf_counter()
+        tts = create_tts(config.tts, config.audio.output_device)
+        print(f"Голос готов за {time.perf_counter() - started:.1f} с")
+    else:
+        tts = NullTTS()
+
     brain = Brain(
         config=config,
         router=Router(registry, config.router.threshold, config.router.stop_words),
@@ -45,35 +54,59 @@ def build_assistant(
         config=config,
         brain=brain,
         wake=WakeWordDetector(config.wake.words, config.wake.threshold),
-        tts=create_tts(config.tts) if speak else NullTTS(),
+        tts=tts,
         os_layer=os_layer,
     )
     return assistant, registry
 
 
 def run_voice(config: Config, *, use_llm: bool = True) -> None:
-    from myata.audio.microphone import Microphone
-    from myata.stt.vosk_stt import VoskRecognizer
+    # Must run before faster_whisper or torch are imported (CUDA DLLs, OpenMP).
+    from myata.oslayer.cuda import prepare_cuda_libraries
 
-    recognizer = VoskRecognizer(config.stt.vosk_model_path, config.audio.sample_rate)
+    prepare_cuda_libraries()
+
+    from myata.audio.microphone import Microphone
+    from myata.stt.vad import PhraseRecorder, SileroVad
+    from myata.stt.whisper_stt import WhisperRecognizer
+    from myata.voice.loop import VoiceLoop
+    from myata.wake.spotter import VoskWakeSpotter
+
+    rate = config.audio.sample_rate
+    spotter = VoskWakeSpotter(config.wake.vosk_model_path, rate, config.wake.words)
+    vad = SileroVad(config.vad.model_path, rate)
+
+    print("Загружаю распознавание речи...")
+    stt = WhisperRecognizer(config.stt, rate)
+    seconds = stt.load()
+    print(f"Whisper готов за {seconds:.1f} с ({stt.device})")
+
     assistant, _ = build_assistant(config, use_llm=use_llm)
-    mic = Microphone(config.audio.sample_rate, config.audio.block_size, config.audio.device)
+    recorder = PhraseRecorder(
+        vad,
+        sample_rate=rate,
+        threshold=config.vad.threshold,
+        silence_ms=config.vad.silence_ms,
+        min_speech_ms=config.vad.min_speech_ms,
+        max_phrase_sec=config.vad.max_phrase_sec,
+    )
+    mic = Microphone(rate, config.audio.block_size, config.audio.device)
 
     assistant.greet()
     with mic:
-        while True:
-            chunk = mic.read()
-            if chunk is None:
-                continue
-            text = recognizer.accept(chunk)
-            if not text:
-                continue
-            outcome = assistant.on_utterance(text)
-            if outcome is Outcome.STOP:
-                return
-            if outcome is not Outcome.IGNORED:
-                mic.clear()  # skip what was recorded while Myata was thinking and talking
-                recognizer.reset()
+        loop = VoiceLoop(
+            assistant=assistant,
+            mic=mic,
+            spotter=spotter,
+            recorder=recorder,
+            stt=stt,
+            sample_rate=rate,
+            preroll_sec=config.wake.preroll_sec,
+            wake_timeout_sec=config.vad.start_timeout_sec,
+            unmute_delay_sec=config.audio.unmute_delay_sec,
+        )
+        print(f"Скажите «{config.wake.words[0]}» и команду. Ctrl+C для выхода.")
+        loop.run()
 
 
 def run_text(config: Config, *, speak: bool = False, use_llm: bool = True) -> None:
@@ -87,3 +120,10 @@ def run_text(config: Config, *, speak: bool = False, use_llm: bool = True) -> No
             return
         if text and assistant.handle_command(text) is Outcome.STOP:
             return
+
+
+def list_audio_devices() -> None:
+    import sounddevice as sd
+
+    print(sd.query_devices())
+    print("\nНомер или имя устройства можно указать в audio.device / audio.output_device.")

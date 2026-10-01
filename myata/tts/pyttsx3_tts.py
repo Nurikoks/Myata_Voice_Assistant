@@ -1,4 +1,4 @@
-"""pyttsx3 engine: robotic, but works everywhere. Kept as a fallback in stage 3."""
+"""pyttsx3 engine: robotic, but works everywhere. Used as the fallback voice."""
 
 from __future__ import annotations
 

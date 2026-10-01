@@ -4,19 +4,30 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myata"
-version = "0.2.0"
+version = "0.3.0"
 description = "Offline voice assistant that understands Russian"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "numpy>=1.26",
     "ollama>=0.6",
     "pyyaml>=6.0",
     "pyttsx3>=2.90",
-    "sounddevice>=0.4.6",
-    "vosk>=0.3.45",
 ]
 
 [project.optional-dependencies]
+# Install torch from the CPU index first, see README:
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
+voice = [
+    "faster-whisper>=1.2",
+    "nvidia-cublas-cu12",
+    "nvidia-cudnn-cu12>=9,<10",
+    "num2words>=0.5.13",
+    "scipy>=1.11",          # needed inside the Silero v5_ru model package
+    "sounddevice>=0.4.6",
+    "torch>=2.4",
+    "vosk>=0.3.45",
+]
 dev = ["pytest>=8.0", "ruff>=0.6"]
 
 [project.scripts]

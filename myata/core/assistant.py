@@ -67,6 +67,24 @@ class Assistant:
     def _listen_without_wake_word(self, seconds: float) -> None:
         self._active_until = self._clock() + seconds
 
+    @property
+    def reply_window(self) -> float:
+        """Seconds left to answer without the wake word (0 when Myata is not waiting)."""
+        return max(0.0, self._active_until - self._clock())
+
+    def stop_waiting(self) -> None:
+        """The user did not answer in time."""
+        self._active_until = 0.0
+
+    def is_addressed(self, text: str) -> bool:
+        """True if the phrase contains Myata's name."""
+        return self._wake.split(text)[0]
+
+    def _start_listening(self) -> Outcome:
+        self.say(self._config.assistant.phrases.listening)
+        self._listen_without_wake_word(self._config.assistant.listen_window_sec)
+        return Outcome.LISTENING
+
     # ---------- input ----------
 
     def on_utterance(self, text: str) -> Outcome:
@@ -75,9 +93,7 @@ class Assistant:
         has_wake, command = self._wake.split(text)
 
         if has_wake and not command:
-            self.say(self._config.assistant.phrases.listening)
-            self._listen_without_wake_word(self._config.assistant.listen_window_sec)
-            return Outcome.LISTENING
+            return self._start_listening()
 
         if has_wake or self._clock() < self._active_until:
             self._active_until = 0.0
@@ -85,6 +101,19 @@ class Assistant:
 
         log.debug("Ignored (no wake word): %s", text)
         return Outcome.IGNORED
+
+    def on_reply(self, text: str) -> Outcome:
+        """Voice mode: an answer recorded inside the reply window, no wake word needed.
+
+        The voice loop decides that the window was open when recording started,
+        so a long answer or slow recognition does not make Myata ignore it.
+        """
+        self._output(f"Вы: {text}")
+        has_wake, command = self._wake.split(text)
+        if has_wake and not command:
+            return self._start_listening()
+        self._active_until = 0.0
+        return self.handle_command(command)
 
     def handle_command(self, text: str) -> Outcome:
         """Run a command that is already addressed to the assistant."""
