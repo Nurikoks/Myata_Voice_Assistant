@@ -1,0 +1,22 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Virtual environments
+.venv/
+venv/
+
+# Tools
+.pytest_cache/
+.ruff_cache/
+
+# Models and runtime files (too big / machine specific)
+models/
+logs/
+
+# Editors
+.vscode/
+.idea/

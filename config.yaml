@@ -1,0 +1,97 @@
+# Myata configuration.
+# Phrases are in Russian because Myata talks Russian. Everything else is plain settings.
+
+assistant:
+  name: Мята
+  listen_window_sec: 6        # how long to wait for a command after a bare "Мята"
+  phrases:
+    greeting: Мята на связи
+    listening: Слушаю
+    not_understood: Не понял команду
+    goodbye: До связи, сэр
+    failed: Не получилось, сэр
+
+wake:
+  words: [мята, миата, ята, матя]   # how Vosk may hear the name
+  threshold: 0.75
+
+router:
+  threshold: 0.6              # how similar a phrase must be to a command (0..1)
+
+audio:
+  sample_rate: 16000
+  block_size: 8000
+  device: null                # null = default microphone
+
+stt:
+  vosk_model_path: models/vosk-model-small-ru-0.22
+
+tts:
+  engine: pyttsx3             # pyttsx3 | none
+  rate: 180
+  voice_hints: [ru, irina, russian]
+
+logging:
+  level: INFO                 # level for the log file
+  console_level: WARNING      # level for the console (--debug sets DEBUG)
+  file: logs/myata.log
+
+# Websites. One entry = one skill.
+sites:
+  - name: youtube
+    url: https://youtube.com
+    phrases: [открой ютуб, включи ютуб]
+    reply: Открываю ютуб
+
+# Applications. A command is a list of arguments for each OS.
+# If an app has no command for the current OS, the skill is simply not registered.
+# Single quotes keep Windows backslashes as they are. %VAR% and ~ are expanded.
+apps:
+  - name: league_of_legends
+    phrases: [открой лигу легенд, запусти лигу легенд, запусти лигу]
+    reply: Запускаю Лигу Легенд, сэр
+    commands:
+      windows: ['C:\Riot Games\Riot Client\RiotClientServices.exe',
+                --launch-product=league_of_legends, --launch-patchline=live]
+
+  - name: browser
+    phrases: [открой браузер, запусти браузер]
+    reply: Открываю браузер
+    commands:
+      windows: [chrome]
+      linux: [google-chrome]
+
+  - name: file_manager
+    phrases: [открой проводник]
+    reply: Открываю проводник
+    commands:
+      windows: [explorer]
+      linux: [xdg-open, '~']
+
+  - name: notepad
+    phrases: [открой блокнот]
+    reply: Открываю блокнот
+    commands:
+      windows: [notepad]
+      linux: [xed]
+
+  - name: steam
+    phrases: [открой стим, запусти стим]
+    reply: Запускаю стим
+    commands:
+      windows: ['%ProgramFiles(x86)%\Steam\steam.exe']
+      linux: [steam]
+
+  - name: discord
+    phrases: [открой дискорд, запусти дискорд]
+    reply: Открываю дискорд
+    commands:
+      windows: ['%LOCALAPPDATA%\Discord\Update.exe', --processStart, Discord.exe]
+      linux: [discord]
+
+  - name: vscode
+    phrases: [открой вс код, открой вэ эс код, открой визуал студио код]
+    reply: Открываю VS Code
+    commands:
+      windows: ['%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe']
+      linux: [code]
