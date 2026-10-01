@@ -1,13 +1,26 @@
 [build-system]
-requires = ["setuptools>=69"]
+requires = ["setuptools>=77"]
 build-backend = "setuptools.build_meta"
 
 [project]
 name = "myata"
-version = "0.4.5"
-description = "Offline voice assistant that understands Russian"
+version = "0.5.0"
+description = "Offline Jarvis-style voice assistant that understands Russian"
 readme = "README.md"
 requires-python = ">=3.11"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "Nurassyl Kaziyev" }]
+keywords = ["voice-assistant", "speech-recognition", "russian", "llm", "ollama", "whisper"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.13",
+    "Operating System :: Microsoft :: Windows",
+    "Operating System :: POSIX :: Linux",
+    "Natural Language :: Russian",
+    "Topic :: Multimedia :: Sound/Audio :: Speech",
+]
 dependencies = [
     "mss>=9.0",                                       # screenshots (Windows, Linux X11)
     "numpy>=1.26",
@@ -32,6 +45,10 @@ voice = [
     "vosk>=0.3.45",
 ]
 dev = ["pytest>=8.0", "ruff>=0.6"]
+
+[project.urls]
+Repository = "https://github.com/Nurikoks/Myata_Voice_Assistant"
+Changelog = "https://github.com/Nurikoks/Myata_Voice_Assistant/blob/main/CHANGELOG.md"
 
 [project.scripts]
 myata = "myata.__main__:main"
