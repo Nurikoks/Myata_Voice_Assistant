@@ -103,7 +103,7 @@ def test_silence_after_listening_goes_back_to_wake():
 def test_confirmation_by_voice():
     calls: list[str] = []
     loop, spotter, *_ = make_loop(
-        "Мята, выключи компьютер.", "Да.", extra_skills=[danger_skill(calls)]
+        "Мята, форматируй диск.", "Да.", extra_skills=[danger_skill(calls)]
     )
     spotter.arm()
     say(loop)

@@ -7,10 +7,11 @@ To add a skill, create a file in myata/skills/builtin/ and decorate a function:
     def tell_time(ctx: SkillContext) -> SkillResult: ...
 
 Optional: parameters (JSON schema for the LLM), dangerous=True (voice confirmation),
-llm=False (fast path only), exact=True (exact phrase only), platforms={"windows"}.
+llm=False (fast path only), exact=True (exact phrase only), platforms={"windows"},
+requires={VOLUME} (registered only if the OS layer can do it).
 
 Every module in that folder is imported automatically, so the core does not change.
-Websites and applications come from config.yaml (see factories.py).
+Websites, applications and scenes come from config.yaml (see factories.py).
 """
 
 from __future__ import annotations
@@ -23,7 +24,7 @@ from typing import Any
 
 from myata.config import Config
 from myata.skills.base import ALL_PLATFORMS, NO_PARAMETERS, Handler, Skill
-from myata.skills.factories import make_app_skill, make_site_skill
+from myata.skills.factories import make_app_skill, make_scene_skill, make_site_skill
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +42,7 @@ def skill(
     dangerous: bool = False,
     confirm: str = "",
     llm: bool = True,
+    requires: Iterable[str] = (),
 ) -> Callable[[Handler], Handler]:
     """Declare a skill. The function itself is returned unchanged."""
 
@@ -57,6 +59,7 @@ def skill(
                 dangerous=dangerous,
                 confirm=confirm,
                 llm=llm,
+                requires=frozenset(requires),
             )
         )
         return func
@@ -92,15 +95,25 @@ class SkillRegistry:
 
 
 def build_registry(
-    os_name: str, config: Config, declared: Iterable[Skill] | None = None
+    os_name: str,
+    config: Config,
+    declared: Iterable[Skill] | None = None,
+    capabilities: Iterable[str] | None = None,
 ) -> SkillRegistry:
-    """Collect the skills that work on this OS: code skills plus config skills."""
+    """Collect the skills that work here: code skills, sites, apps and scenes.
+
+    capabilities=None means "everything is available" (used by tests).
+    """
+    caps = None if capabilities is None else frozenset(capabilities)
     registry = SkillRegistry()
     for item in load_builtin_skills() if declared is None else declared:
-        if os_name in item.platforms:
-            registry.register(item)
-        else:
+        if os_name not in item.platforms:
             log.info("Skill %s is not available on %s, skipped", item.name, os_name)
+        elif caps is not None and not item.requires <= caps:
+            missing = ", ".join(sorted(item.requires - caps))
+            log.info("Skill %s needs %s, which this system lacks, skipped", item.name, missing)
+        else:
+            registry.register(item)
 
     for site in config.sites:
         registry.register(make_site_skill(site))
@@ -111,6 +124,11 @@ def build_registry(
             log.info("App %s has no command for %s, skipped", app.name, os_name)
             continue
         registry.register(make_app_skill(app, argv, os_name))
+
+    for scene in config.scenes:
+        item = make_scene_skill(scene, config, os_name, caps)
+        if item is not None:
+            registry.register(item)
 
     log.info("Registered %d skills: %s", len(registry), ", ".join(s.name for s in registry))
     return registry

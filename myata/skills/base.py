@@ -15,9 +15,10 @@ NO_PARAMETERS: Mapping[str, Any] = {"type": "object", "properties": {}}
 
 @dataclass(frozen=True)
 class SkillResult:
-    speech: str          # what Myata says back
-    ok: bool = True      # False if the action failed
-    stop: bool = False   # True if the assistant should shut down
+    speech: str               # what Myata says back
+    ok: bool = True           # False if the action failed
+    stop: bool = False        # True if the assistant should shut down
+    data: str | None = None   # facts for the LLM to phrase the answer; speech is the fallback
 
 
 @dataclass(frozen=True)
@@ -43,6 +44,7 @@ class Skill:
     dangerous: bool = False          # ask for voice confirmation before running
     confirm: str = ""                # custom confirmation question
     llm: bool = True                 # the LLM may call this skill as a tool
+    requires: frozenset[str] = frozenset()  # OS capabilities it needs (oslayer.base)
 
     @property
     def needs_args(self) -> bool:

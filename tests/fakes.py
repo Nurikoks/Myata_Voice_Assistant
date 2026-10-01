@@ -11,7 +11,7 @@ from myata.brain.llm import LLMError, LLMReply, ToolCall
 from myata.brain.router import Router
 from myata.config import Config, config_from_dict
 from myata.core.assistant import Assistant
-from myata.oslayer import LaunchError
+from myata.oslayer import ALL_CAPABILITIES, LaunchError, OSActionError
 from myata.skills.base import Skill, SkillResult
 from myata.skills.registry import build_registry
 from myata.wake.detector import WakeWordDetector
@@ -57,11 +57,23 @@ class FakeTTS:
 
 
 class FakeOS:
+    """Records every OS action instead of doing it."""
+
     def __init__(self, name: str = "windows", fail_launch: bool = False) -> None:
         self.name = name
         self.fail_launch = fail_launch
+        self.fail_actions = False
         self.launched: list[list[str]] = []
         self.opened: list[str] = []
+        self.volume = 50
+        self.muted = False
+        self.media: list[str] = []
+        self.power_actions: list[str] = []
+        self.clipboard = ""
+        self.screenshots: list[str] = []
+
+    def capabilities(self) -> frozenset[str]:
+        return ALL_CAPABILITIES
 
     def launch(self, argv: Sequence[str]) -> None:
         if self.fail_launch:
@@ -71,6 +83,38 @@ class FakeOS:
     def open_url(self, url: str) -> bool:
         self.opened.append(url)
         return True
+
+    def _check(self) -> None:
+        if self.fail_actions:
+            raise OSActionError("broken")
+
+    def get_volume(self) -> int:
+        self._check()
+        return self.volume
+
+    def set_volume(self, percent: int) -> None:
+        self._check()
+        self.volume, self.muted = percent, False
+
+    def set_mute(self, muted: bool) -> None:
+        self._check()
+        self.muted = muted
+
+    def media_key(self, key: str) -> None:
+        self._check()
+        self.media.append(key)
+
+    def power(self, action: str) -> None:
+        self._check()
+        self.power_actions.append(action)
+
+    def read_clipboard(self) -> str:
+        self._check()
+        return self.clipboard
+
+    def screenshot(self, path) -> None:
+        self._check()
+        self.screenshots.append(str(path))
 
 
 class FakeClock:
@@ -107,30 +151,36 @@ def tool_reply(name: str, **arguments) -> LLMReply:
     return LLMReply("", (ToolCall(name, arguments),))
 
 
+def tools_reply(*calls: tuple[str, dict]) -> LLMReply:
+    """Several tool calls in one answer: tools_reply(("a", {}), ("b", {"x": 1}))."""
+    return LLMReply("", tuple(ToolCall(name, args) for name, args in calls))
+
+
 def offline() -> LLMError:
     return LLMError("connection refused")
 
 
-def make_config() -> Config:
-    return config_from_dict(TEST_CONFIG)
+def make_config(**sections) -> Config:
+    """TEST_CONFIG with some sections replaced, e.g. make_config(skills={...})."""
+    return config_from_dict({**TEST_CONFIG, **sections})
 
 
 def danger_skill(calls: list[str]) -> Skill:
     def handler(ctx):
         calls.append("boom")
-        return SkillResult("Выключаю компьютер")
+        return SkillResult("Форматирую диск")
 
     return Skill(
-        name="shutdown_pc",
-        description="Turn off the computer",
-        phrases=("выключи компьютер",),
+        name="format_disk",
+        description="Format the disk",
+        phrases=("форматируй диск",),
         handler=handler,
         dangerous=True,
     )
 
 
-def make_brain(llm=None, extra_skills=(), clock=None):
-    config = make_config()
+def make_brain(llm=None, extra_skills=(), clock=None, config=None):
+    config = config or make_config()
     registry = build_registry("windows", config)
     for item in extra_skills:
         registry.register(item)
@@ -146,10 +196,10 @@ def make_brain(llm=None, extra_skills=(), clock=None):
     return brain, config
 
 
-def make_assistant(os_layer: FakeOS | None = None, llm=None, extra_skills=()):
+def make_assistant(os_layer: FakeOS | None = None, llm=None, extra_skills=(), config=None):
     os_layer = os_layer or FakeOS()
     tts, clock = FakeTTS(), FakeClock()
-    brain, config = make_brain(llm, extra_skills, clock)
+    brain, config = make_brain(llm, extra_skills, clock, config)
     assistant = Assistant(
         config=config,
         brain=brain,

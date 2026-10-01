@@ -16,6 +16,8 @@ def test_repo_config_is_valid():
     assert config.tts.engine == "silero"
     assert config.tts.silero.model_path.endswith("v5_ru.pt")
     assert config.tts.replacements["VS Code"] == "вэ эс код"
+    assert config.scenes[0].name == "gaming"
+    assert config.skills.power_dry_run is False
 
 
 def test_defaults_without_file_content():

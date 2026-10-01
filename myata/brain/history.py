@@ -5,16 +5,25 @@ from __future__ import annotations
 import time
 from collections import deque
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
+
+
+@dataclass(frozen=True)
+class Action:
+    """A skill that ran during a turn and what it returned."""
+
+    name: str
+    args: Mapping[str, Any] = field(default_factory=dict)
+    result: str = ""
 
 
 @dataclass(frozen=True)
 class Turn:
     user: str
     reply: str
-    tool_name: str | None = None
-    tool_args: Mapping[str, Any] | None = None
+    actions: tuple[Action, ...] = ()
+    phrased: bool = False  # the LLM wrote the reply from the tool results
 
 
 class History:
@@ -44,12 +53,10 @@ class History:
         result: list[dict[str, Any]] = []
         for turn in self._turns:
             result.append({"role": "user", "content": turn.user})
-            if turn.tool_name:
-                args = dict(turn.tool_args or {})
-                call = {"function": {"name": turn.tool_name, "arguments": args}}
-                result.append({"role": "assistant", "content": "", "tool_calls": [call]})
-                result.append({"role": "tool", "content": turn.reply, "tool_name": turn.tool_name})
-            else:
+            result.extend(action_messages(turn.actions))
+            # After actions the reply is just the skills' own phrases, already in the
+            # tool messages. It is added only when the LLM wrote it, to keep the context short.
+            if not turn.actions or turn.phrased:
                 result.append({"role": "assistant", "content": turn.reply})
         return result
 
@@ -60,3 +67,14 @@ class History:
     def _expire(self) -> None:
         if self._turns and self._clock() - self._last > self._ttl:
             self._turns.clear()
+
+
+def action_messages(actions: tuple[Action, ...]) -> list[dict[str, Any]]:
+    """One assistant message with all tool calls, then one tool message per result."""
+    if not actions:
+        return []
+    calls = [{"function": {"name": a.name, "arguments": dict(a.args)}} for a in actions]
+    messages: list[dict[str, Any]] = [{"role": "assistant", "content": "", "tool_calls": calls}]
+    for a in actions:
+        messages.append({"role": "tool", "content": a.result, "tool_name": a.name})
+    return messages

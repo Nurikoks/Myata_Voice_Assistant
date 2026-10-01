@@ -23,7 +23,13 @@ SEARCH_URLS = {
     parameters={
         "type": "object",
         "properties": {
-            "query": {"type": "string", "description": "What to search for"},
+            "query": {
+                "type": "string",
+                "description": (
+                    "The search words exactly as the user said them, in the same language. "
+                    "Do not translate, expand or explain them and do not add the site name."
+                ),
+            },
             "site": {
                 "type": "string",
                 "enum": ["google", "youtube"],

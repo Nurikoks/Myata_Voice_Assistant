@@ -20,6 +20,21 @@ Simple commands run instantly. Free-form phrases ("закинь мне ютуб"
 While Myata thinks or talks, the microphone is muted. If she asks a question
 or needs "да"/"нет", you can answer without saying her name.
 
+## What she can do
+
+- open websites and launch apps from `config.yaml`, search Google or YouTube
+- volume ("громче", "выключи звук", "сделай громкость 30"), media keys ("пауза", "следующий трек")
+- shut down, restart or sleep the computer (always asks "да или нет" first)
+- notes ("запиши купить молоко", "что в заметках"), read or translate the clipboard,
+  screenshots
+- scenes: one phrase runs several steps, e.g. "игровой режим" starts Discord and Steam
+- several actions at once: "открой дискорд и стим"
+
+Skills that return information (notes, clipboard) send it back to the LLM, which
+answers the actual question ("переведи то, что я скопировал"). Without Ollama they
+read the information out as is. A skill that needs something the system lacks
+(no `playerctl` on Linux, for example) is simply not registered.
+
 ## Setup (Windows)
 
 ```powershell
@@ -54,6 +69,26 @@ unzipped to `models/vosk-model-small-ru-0.22`.
 
 Silero TTS models are licensed CC BY-NC 4.0 (non-commercial use).
 
+## Setup (Linux Mint 22)
+
+```bash
+sudo apt install python3-venv libportaudio2 espeak-ng libespeak1 pulseaudio-utils playerctl xclip
+python3 -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+pip install torch --index-url https://download.pytorch.org/whl/cpu
+pip install -e ".[dev,voice]"
+curl -fsSL https://ollama.com/install.sh | sh
+ollama pull qwen3.5:4b
+```
+
+Install the NVIDIA driver through Driver Manager first. The CUDA libraries for
+Whisper come from pip and are loaded by Myata itself, no `LD_LIBRARY_PATH` needed.
+Models are downloaded the same way as on Windows (use `wget -O` or `curl -Lo`
+instead of `Invoke-WebRequest`). Screenshots need an X11 session (the Mint default).
+Check the Linux commands of your apps in `config.yaml`: Flatpak apps start with
+`flatpak run <app id>`.
+
 ## Run
 
 ```powershell
@@ -65,7 +100,8 @@ python -m myata --list-skills   # show what Myata can do on this OS
 python -m myata --list-devices  # show microphones and speakers
 ```
 
-Settings, phrases, models, voice, websites and apps are in `config.yaml`.
+Settings, phrases, models, voice, websites, apps and scenes are in `config.yaml`.
+Notes are saved to `data/notes.md`.
 Logs go to `logs/myata.log`.
 
 ## Development
@@ -110,8 +146,11 @@ def say_hello(ctx: SkillContext) -> SkillResult:
     return SkillResult("Привет, сэр")
 ```
 
-It is picked up automatically. To add a website or an app, just add it to `config.yaml`.
+It is picked up automatically. To add a website, an app or a scene, just add it to `config.yaml`.
 
 Skills can also take arguments from the LLM (`parameters=` with a JSON schema,
-arguments are validated before the skill runs) and ask for voice confirmation
-(`dangerous=True`). The LLM can only call registered skills, never shell commands.
+arguments are validated before the skill runs), ask for voice confirmation
+(`dangerous=True`), need an OS capability (`requires=[VOLUME]`) and return
+`SkillResult(speech, data=...)` to let the LLM phrase the answer.
+Everything OS-specific goes into `myata/oslayer/`.
+The LLM can only call registered skills, never shell commands.

@@ -4,15 +4,17 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "myata"
-version = "0.3.0"
+version = "0.4.0"
 description = "Offline voice assistant that understands Russian"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "mss>=9.0",                                       # screenshots (Windows, Linux X11)
     "numpy>=1.26",
     "ollama>=0.6",
-    "pyyaml>=6.0",
+    "pycaw>=20251023; sys_platform == 'win32'",       # volume on Windows
     "pyttsx3>=2.90",
+    "pyyaml>=6.0",
 ]
 
 [project.optional-dependencies]

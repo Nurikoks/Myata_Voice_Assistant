@@ -23,7 +23,9 @@ def build_assistant(
     config: Config, *, speak: bool = True, use_llm: bool = True
 ) -> tuple[Assistant, SkillRegistry]:
     os_layer = get_os_layer()
-    registry = build_registry(os_layer.name, config)
+    capabilities = os_layer.capabilities()
+    log.info("OS %s can do: %s", os_layer.name, ", ".join(sorted(capabilities)) or "nothing extra")
+    registry = build_registry(os_layer.name, config, capabilities=capabilities)
 
     llm: ChatModel | None = None
     if use_llm and config.llm.enabled:

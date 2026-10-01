@@ -36,13 +36,14 @@ llm:
   model: qwen3.5:4b           # 8 GB VRAM: qwen3:8b also fits next to whisper
   think: false                # thinking makes every answer several seconds slower
   temperature: 0.6
-  num_ctx: 4096
+  num_ctx: 6144               # 20+ tools take ~1.7k tokens; the log warns when it gets tight
   max_tokens: 256             # hard limit for one answer, stops a looping model
   keep_alive: 30m             # keep the model in VRAM between commands
   timeout_sec: 60
   max_reply_chars: 300
   history_turns: 6            # how many past exchanges the LLM sees
   history_ttl_sec: 300        # forget the dialog after 5 minutes of silence
+  max_tool_calls: 3           # "открой дискорд и стим" runs up to this many skills at once
   # Placeholders: {name}, {date}, {time}
   system_prompt: |
     Ты {name}, голосовой ассистент в стиле Джарвиса из фильма «Железный человек».
@@ -53,6 +54,7 @@ llm:
     Поэтому не используй markdown, списки, эмодзи, ссылки и код.
     Если пользователь просит что-то сделать и для этого есть инструмент, вызови инструмент.
     Никогда не говори, что выполнила действие, если не вызвала инструмент.
+    Если пользователь просит сразу несколько действий, вызови несколько инструментов.
     Если подходящего инструмента нет, честно скажи, что пока так не умеешь.
     Сегодня {date}, сейчас {time}.
 
@@ -120,6 +122,16 @@ tts:
     League of Legends: лига легенд
     LLM: эл эл эм
     Ollama: оллама
+
+# Settings of built-in skills
+skills:
+  volume_step: 10             # "громче" / "тише" change the volume by this many percent
+  notes_file: data/notes.md
+  notes_to_read: 10           # how many latest notes the LLM sees
+  screenshots_dir: ~/Pictures/Myata
+  clipboard_max_chars: 2000   # longer copied text is cut before it goes to the LLM
+  power_delay_sec: 3          # let Myata finish talking before shutdown or sleep
+  power_dry_run: false        # true = shutdown/reboot/sleep only pretend (for testing)
 
 logging:
   level: INFO                 # level for the log file
@@ -193,3 +205,16 @@ apps:
     commands:
       windows: ['%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe']
       linux: [code]
+
+# Scenes: one phrase runs several steps. A step is one of:
+#   launch: <app name>   open: <site name>   volume: 0..100   media: play_pause|next|previous|stop
+# Steps that do not work on this OS are dropped (e.g. an app without a Linux command).
+scenes:
+  - name: gaming
+    phrases: [игровой режим, включи игровой режим, режим игры]
+    reply: Игровой режим включён, сэр
+    description: Gaming mode, starts Discord and Steam and sets the volume (игровой режим)
+    steps:
+      - launch: discord
+      - launch: steam
+      - volume: 40

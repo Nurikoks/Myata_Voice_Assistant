@@ -16,6 +16,7 @@ venv/
 # Models and runtime files (too big / machine specific)
 models/
 logs/
+data/
 
 # Editors
 .vscode/

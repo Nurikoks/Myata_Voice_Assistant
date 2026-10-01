@@ -80,10 +80,18 @@ class OllamaChat:
             ToolCall(call.function.name, _parse_arguments(call.function.arguments))
             for call in (message.tool_calls or [])
         )
+        prompt_tokens = getattr(response, "prompt_eval_count", None) or 0
         log.info(
-            "LLM answered in %.1f s (%d tool calls, %d chars)",
-            elapsed, len(calls), len(message.content or ""),
+            "LLM answered in %.1f s (%d tool calls, %d chars, %d prompt tokens)",
+            elapsed, len(calls), len(message.content or ""), prompt_tokens,
         )
+        if prompt_tokens > 0.9 * self._options["num_ctx"]:
+            # Ollama silently drops the start of the prompt (the system prompt!) when it
+            # does not fit, and the model starts to behave strangely.
+            log.warning(
+                "Prompt uses %d of %d context tokens, raise llm.num_ctx",
+                prompt_tokens, self._options["num_ctx"],
+            )
         return LLMReply(content=message.content or "", tool_calls=calls)
 
     def warm_up(self) -> float | None:

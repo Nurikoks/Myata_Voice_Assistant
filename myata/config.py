@@ -14,6 +14,8 @@ from pathlib import Path
 
 import yaml
 
+from myata.oslayer.base import MEDIA_KEYS
+
 
 class ConfigError(Exception):
     """Raised when the config file is missing or invalid."""
@@ -28,6 +30,7 @@ DEFAULT_SYSTEM_PROMPT = """\
 Поэтому не используй markdown, списки, эмодзи, ссылки и код.
 Если пользователь просит что-то сделать и для этого есть инструмент, вызови инструмент.
 Никогда не говори, что выполнила действие, если не вызвала инструмент.
+Если пользователь просит сразу несколько действий, вызови несколько инструментов.
 Если подходящего инструмента нет, честно скажи, что пока так не умеешь.
 Сегодня {date}, сейчас {time}."""
 
@@ -77,13 +80,14 @@ class LlmConfig:
     model: str = "qwen3.5:4b"
     think: bool | None = False
     temperature: float = 0.6
-    num_ctx: int = 4096
+    num_ctx: int = 6144
     max_tokens: int = 256
     keep_alive: str = "30m"
     timeout_sec: float = 60.0
     max_reply_chars: int = 300
     history_turns: int = 6
     history_ttl_sec: float = 300.0
+    max_tool_calls: int = 3
     system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
 
@@ -158,6 +162,17 @@ class TtsConfig:
 
 
 @dataclass(frozen=True)
+class SkillsConfig:
+    volume_step: int = 10
+    notes_file: str = "data/notes.md"
+    notes_to_read: int = 10
+    screenshots_dir: str = "~/Pictures/Myata"
+    clipboard_max_chars: int = 2000
+    power_delay_sec: float = 3.0
+    power_dry_run: bool = False
+
+
+@dataclass(frozen=True)
 class LoggingConfig:
     level: str = "INFO"
     console_level: str = "WARNING"
@@ -183,6 +198,25 @@ class AppConfig:
 
 
 @dataclass(frozen=True)
+class SceneStep:
+    """One step of a scene. Exactly one field is set."""
+
+    launch: str | None = None   # app name from "apps"
+    open: str | None = None     # site name from "sites"
+    volume: int | None = None   # 0..100
+    media: str | None = None    # play_pause | next | previous | stop
+
+
+@dataclass(frozen=True)
+class SceneConfig:
+    name: str
+    phrases: tuple[str, ...]
+    reply: str
+    steps: tuple[SceneStep, ...]
+    description: str = ""
+
+
+@dataclass(frozen=True)
 class Config:
     assistant: AssistantConfig = field(default_factory=AssistantConfig)
     wake: WakeConfig = field(default_factory=WakeConfig)
@@ -192,9 +226,11 @@ class Config:
     vad: VadConfig = field(default_factory=VadConfig)
     stt: SttConfig = field(default_factory=SttConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
+    skills: SkillsConfig = field(default_factory=SkillsConfig)
     logging: LoggingConfig = field(default_factory=LoggingConfig)
     sites: tuple[SiteConfig, ...] = ()
     apps: tuple[AppConfig, ...] = ()
+    scenes: tuple[SceneConfig, ...] = ()
 
 
 KNOWN_OS = {"windows", "linux"}
@@ -242,6 +278,11 @@ def _validate(config: Config) -> None:
         raise ConfigError("wake.words needs at least one word")
     if config.audio.block_size <= 0 or config.vad.silence_ms <= 0:
         raise ConfigError("audio.block_size and vad.silence_ms must be positive")
+    if config.llm.max_tool_calls < 1:
+        raise ConfigError("llm.max_tool_calls must be at least 1")
+    if not 1 <= config.skills.volume_step <= 50:
+        raise ConfigError("skills.volume_step must be between 1 and 50")
+    _validate_scenes(config)
     for app in config.apps:
         unknown = set(app.commands) - KNOWN_OS
         if unknown:
@@ -249,6 +290,27 @@ def _validate(config: Config) -> None:
         for os_name, argv in app.commands.items():
             if not argv:
                 raise ConfigError(f"apps.{app.name}.commands.{os_name} is empty")
+
+
+def _validate_scenes(config: Config) -> None:
+    apps = {app.name for app in config.apps}
+    sites = {site.name for site in config.sites}
+    for scene in config.scenes:
+        where = f"scenes.{scene.name}"
+        if not scene.steps:
+            raise ConfigError(f"{where}: needs at least one step")
+        for i, step in enumerate(scene.steps):
+            used = [f.name for f in dataclasses.fields(step) if getattr(step, f.name) is not None]
+            if len(used) != 1:
+                raise ConfigError(f"{where}.steps[{i}]: set one of launch/open/volume/media")
+            if step.launch is not None and step.launch not in apps:
+                raise ConfigError(f"{where}.steps[{i}]: unknown app '{step.launch}'")
+            if step.open is not None and step.open not in sites:
+                raise ConfigError(f"{where}.steps[{i}]: unknown site '{step.open}'")
+            if step.volume is not None and not 0 <= step.volume <= 100:
+                raise ConfigError(f"{where}.steps[{i}]: volume must be 0..100")
+            if step.media is not None and step.media not in MEDIA_KEYS:
+                raise ConfigError(f"{where}.steps[{i}]: media must be one of {list(MEDIA_KEYS)}")
 
 
 def _build(cls: type, data: object, where: str) -> object:
@@ -307,3 +369,4 @@ def _is_instance(value: object, tp: type) -> bool:
     if isinstance(value, bool) and tp is not bool:
         return False
     return isinstance(value, tp)
+

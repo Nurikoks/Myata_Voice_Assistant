@@ -74,7 +74,7 @@ def test_question_opens_window_without_wake_word():
 def test_dangerous_skill_needs_yes():
     calls: list[str] = []
     assistant, tts, _, clock = make_assistant(extra_skills=[danger_skill(calls)])
-    assistant.on_utterance("мята выключи компьютер")
+    assistant.on_utterance("мята форматируй диск")
     assert calls == [] and tts.spoken[-1] == "Вы уверены, сэр? Скажите да или нет."
     clock.now += 5
     assistant.on_utterance("да")                      # no wake word needed
@@ -84,7 +84,7 @@ def test_dangerous_skill_needs_yes():
 def test_dangerous_skill_cancelled():
     calls: list[str] = []
     assistant, tts, _, _ = make_assistant(extra_skills=[danger_skill(calls)])
-    assistant.handle_command("выключи компьютер")
+    assistant.handle_command("форматируй диск")
     assistant.handle_command("нет")
     assert calls == [] and tts.spoken[-1] == "Отменяю"
 
@@ -92,7 +92,7 @@ def test_dangerous_skill_cancelled():
 def test_confirmation_expires():
     calls: list[str] = []
     assistant, _, _, clock = make_assistant(extra_skills=[danger_skill(calls)])
-    assistant.handle_command("выключи компьютер")
+    assistant.handle_command("форматируй диск")
     clock.now += 60
     assistant.handle_command("да")                    # too late, treated as a new command
     assert calls == []

@@ -31,7 +31,7 @@ def test_request_and_tool_calls():
     assert reply.tool_calls[0].arguments == {"query": "котики"}  # JSON string is parsed
     assert client.kwargs["model"] == "qwen3.5:4b"
     assert client.kwargs["think"] is False
-    assert client.kwargs["options"]["num_ctx"] == 4096
+    assert client.kwargs["options"]["num_ctx"] == 6144
     assert client.kwargs["options"]["num_predict"] == 256
 
 

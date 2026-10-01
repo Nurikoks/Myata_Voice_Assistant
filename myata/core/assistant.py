@@ -10,10 +10,11 @@ from __future__ import annotations
 
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from enum import Enum, auto
 
-from myata.brain.brain import Brain, Reply, SkillCall
+from myata.brain.brain import Brain, MultiCall, Reply, SkillCall
+from myata.brain.history import Action
 from myata.brain.text import normalize
 from myata.config import Config
 from myata.oslayer import OSLayer
@@ -22,6 +23,8 @@ from myata.tts.base import TextToSpeech
 from myata.wake.detector import WakeWordDetector
 
 log = logging.getLogger(__name__)
+
+HISTORY_RESULT_CHARS = 500  # long results (clipboard text) are cut in the dialog history
 
 
 class Outcome(Enum):
@@ -51,7 +54,7 @@ class Assistant:
         self._clock = clock
         self._output = output
         self._active_until = 0.0
-        self._pending: tuple[str, SkillCall] | None = None
+        self._pending: tuple[str, tuple[SkillCall, ...]] | None = None
         self._pending_until = 0.0
 
     # ---------- talking ----------
@@ -120,7 +123,7 @@ class Assistant:
         if self._pending is not None:
             if self._clock() <= self._pending_until:
                 return self._answer_confirmation(text)
-            log.info("Confirmation for %s expired", self._pending[1].skill.name)
+            log.info("Confirmation for %s expired", _names(self._pending[1]))
             self._pending = None
 
         decision = self._brain.decide(text)
@@ -131,45 +134,83 @@ class Assistant:
                 # Myata asked something, let the user answer without the wake word.
                 self._listen_without_wake_word(self._config.assistant.listen_window_sec)
             return Outcome.HANDLED
-        return self._start(text, decision)
+        calls = decision.calls if isinstance(decision, MultiCall) else (decision,)
+        return self._start(text, calls)
 
     # ---------- skills ----------
 
-    def _start(self, user_text: str, call: SkillCall) -> Outcome:
-        if not call.skill.dangerous:
-            return self._execute(user_text, call)
+    def _start(self, user_text: str, calls: tuple[SkillCall, ...]) -> Outcome:
+        dangerous = [call for call in calls if call.skill.dangerous]
+        if not dangerous:
+            return self._execute(user_text, calls)
+        # One confirmation covers the whole batch.
         timeout = self._config.assistant.confirm_timeout_sec
-        self._pending = (user_text, call)
+        self._pending = (user_text, calls)
         self._pending_until = self._clock() + timeout
-        self.say(call.skill.confirm or self._config.assistant.phrases.confirm)
+        self.say(dangerous[0].skill.confirm or self._config.assistant.phrases.confirm)
         self._listen_without_wake_word(timeout)
         return Outcome.HANDLED
 
     def _answer_confirmation(self, text: str) -> Outcome:
         assert self._pending is not None
-        user_text, call = self._pending
+        user_text, calls = self._pending
         self._pending = None
         self._active_until = 0.0
         words = set(normalize(text).split())
         yes = words & set(self._config.assistant.yes_words)
         no = words & set(self._config.assistant.no_words)
         if yes and not no:
-            log.info("Confirmed: %s", call.skill.name)
-            return self._execute(user_text, call)
-        log.info("Not confirmed: %s (answer %r)", call.skill.name, text)
+            log.info("Confirmed: %s", _names(calls))
+            return self._execute(user_text, calls)
+        log.info("Not confirmed: %s (answer %r)", _names(calls), text)
         self.say(self._config.assistant.phrases.cancelled)
         return Outcome.HANDLED
 
-    def _execute(self, user_text: str, call: SkillCall) -> Outcome:
+    def _execute(self, user_text: str, calls: tuple[SkillCall, ...]) -> Outcome:
+        results = [(call, self._run(user_text, call)) for call in calls]
+        actions = [
+            Action(call.skill.name, dict(call.args), result.data or result.speech)
+            for call, result in results
+        ]
+
+        # Skills with data (notes, clipboard) are answered by the LLM, which sees
+        # the user's question and the data. Without the LLM their own phrase is used.
+        speech = None
+        if any(result.data for _, result in results):
+            speech = self._brain.phrase(user_text, actions)
+        phrased = speech is not None
+        if speech is None:
+            speech = join_sentences(result.speech for _, result in results)
+
+        self.say(speech)
+        short = [Action(a.name, a.args, a.result[:HISTORY_RESULT_CHARS]) for a in actions]
+        self._brain.remember(user_text, speech, short, phrased)
+        if phrased and speech.rstrip().endswith("?"):
+            self._listen_without_wake_word(self._config.assistant.listen_window_sec)
+        return Outcome.STOP if any(result.stop for _, result in results) else Outcome.HANDLED
+
+    def _run(self, user_text: str, call: SkillCall) -> SkillResult:
         ctx = SkillContext(
             os=self._os, config=self._config, text=normalize(user_text), args=call.args
         )
         try:
-            result = call.skill.handler(ctx)
+            return call.skill.handler(ctx)
         except Exception:
             log.exception("Skill %s crashed", call.skill.name)
-            result = SkillResult(self._config.assistant.phrases.failed, ok=False)
+            return SkillResult(self._config.assistant.phrases.failed, ok=False)
 
-        self.say(result.speech)
-        self._brain.remember(user_text, result.speech, call)
-        return Outcome.STOP if result.stop else Outcome.HANDLED
+
+def _names(calls: tuple[SkillCall, ...]) -> str:
+    return ", ".join(call.skill.name for call in calls)
+
+
+def join_sentences(parts: Iterable[str]) -> str:
+    """Join the skills' phrases: "Открываю дискорд. Запускаю стим." """
+    sentences: list[str] = []
+    for part in parts:
+        part = part.strip()
+        if part and part not in sentences:  # two failures should not say it twice
+            sentences.append(part)
+    if len(sentences) <= 1:
+        return sentences[0] if sentences else ""
+    return " ".join(s if s[-1] in ".!?" else f"{s}." for s in sentences)
