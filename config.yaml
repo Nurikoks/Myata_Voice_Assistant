@@ -4,19 +4,53 @@
 assistant:
   name: Мята
   listen_window_sec: 6        # how long to wait for a command after a bare "Мята"
+  confirm_timeout_sec: 15     # how long to wait for "да" / "нет" before a dangerous action
+  yes_words: [да, подтверждаю, конечно, давай, ага, точно]
+  no_words: [нет, отмена, отмени, не]
   phrases:
     greeting: Мята на связи
     listening: Слушаю
-    not_understood: Не понял команду
+    not_understood: Не поняла команду
     goodbye: До связи, сэр
     failed: Не получилось, сэр
+    confirm: Вы уверены, сэр? Скажите да или нет.
+    cancelled: Отменяю
+    brain_offline: Мой мозг сейчас не отвечает, сэр.
 
 wake:
   words: [мята, миата, ята, матя]   # how Vosk may hear the name
   threshold: 0.75
 
+# Fast path: commands that clearly match an example phrase run instantly without the LLM.
 router:
-  threshold: 0.6              # how similar a phrase must be to a command (0..1)
+  threshold: 0.75             # 1.0 = every word of the phrase found and nothing extra
+  stop_words: [пожалуйста, мне, ка, там, сейчас, а, ну, и]
+
+llm:
+  enabled: true
+  host: http://localhost:11434
+  model: qwen3.5:4b           # 8 GB VRAM: qwen3:8b also fits next to whisper
+  think: false                # thinking makes every answer several seconds slower
+  temperature: 0.6
+  num_ctx: 4096
+  max_tokens: 256             # hard limit for one answer, stops a looping model
+  keep_alive: 30m             # keep the model in VRAM between commands
+  timeout_sec: 60
+  max_reply_chars: 300
+  history_turns: 6            # how many past exchanges the LLM sees
+  history_ttl_sec: 300        # forget the dialog after 5 minutes of silence
+  # Placeholders: {name}, {date}, {time}
+  system_prompt: |
+    Ты {name}, голосовой ассистент в стиле Джарвиса из фильма «Железный человек».
+    Ты вежливая, спокойная и немного ироничная. О себе говоришь в женском роде.
+    Обращайся к пользователю «сэр».
+    Отвечай по-русски, коротко: одно или два предложения.
+    Твой ответ будет озвучен голосом.
+    Поэтому не используй markdown, списки, эмодзи, ссылки и код.
+    Если пользователь просит что-то сделать и для этого есть инструмент, вызови инструмент.
+    Никогда не говори, что выполнила действие, если не вызвала инструмент.
+    Если подходящего инструмента нет, честно скажи, что пока так не умеешь.
+    Сегодня {date}, сейчас {time}.
 
 audio:
   sample_rate: 16000
@@ -36,12 +70,13 @@ logging:
   console_level: WARNING      # level for the console (--debug sets DEBUG)
   file: logs/myata.log
 
-# Websites. One entry = one skill.
+# Websites. One entry = one skill. The description is what the LLM sees.
 sites:
   - name: youtube
     url: https://youtube.com
     phrases: [открой ютуб, включи ютуб]
     reply: Открываю ютуб
+    description: Open the YouTube main page (ютуб)
 
 # Applications. A command is a list of arguments for each OS.
 # If an app has no command for the current OS, the skill is simply not registered.
@@ -50,6 +85,7 @@ apps:
   - name: league_of_legends
     phrases: [открой лигу легенд, запусти лигу легенд, запусти лигу]
     reply: Запускаю Лигу Легенд, сэр
+    description: Launch the game League of Legends (лига легенд, лол)
     commands:
       windows: ['C:\Riot Games\Riot Client\RiotClientServices.exe',
                 --launch-product=league_of_legends, --launch-patchline=live]
@@ -57,6 +93,7 @@ apps:
   - name: browser
     phrases: [открой браузер, запусти браузер]
     reply: Открываю браузер
+    description: Open the web browser Google Chrome (браузер, хром)
     commands:
       windows: [chrome]
       linux: [google-chrome]
@@ -64,6 +101,7 @@ apps:
   - name: file_manager
     phrases: [открой проводник]
     reply: Открываю проводник
+    description: Open the file manager (проводник, файлы)
     commands:
       windows: [explorer]
       linux: [xdg-open, '~']
@@ -71,6 +109,7 @@ apps:
   - name: notepad
     phrases: [открой блокнот]
     reply: Открываю блокнот
+    description: Open a simple text editor (блокнот)
     commands:
       windows: [notepad]
       linux: [xed]
@@ -78,6 +117,7 @@ apps:
   - name: steam
     phrases: [открой стим, запусти стим]
     reply: Запускаю стим
+    description: Launch Steam, the game store and launcher (стим)
     commands:
       windows: ['%ProgramFiles(x86)%\Steam\steam.exe']
       linux: [steam]
@@ -85,6 +125,7 @@ apps:
   - name: discord
     phrases: [открой дискорд, запусти дискорд]
     reply: Открываю дискорд
+    description: Launch Discord, the voice chat and messenger (дискорд)
     commands:
       windows: ['%LOCALAPPDATA%\Discord\Update.exe', --processStart, Discord.exe]
       linux: [discord]
@@ -92,6 +133,7 @@ apps:
   - name: vscode
     phrases: [открой вс код, открой вэ эс код, открой визуал студио код]
     reply: Открываю VS Code
+    description: Launch the code editor Visual Studio Code (вс код, редактор кода)
     commands:
       windows: ['%LOCALAPPDATA%\Programs\Microsoft VS Code\Code.exe']
       linux: [code]

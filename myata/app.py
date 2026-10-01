@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import logging
 
+from myata.brain.brain import Brain
+from myata.brain.history import History
+from myata.brain.llm import ChatModel, OllamaChat
 from myata.brain.router import Router
 from myata.config import Config
 from myata.core.assistant import Assistant, Outcome
@@ -15,12 +18,32 @@ from myata.wake.detector import WakeWordDetector
 log = logging.getLogger(__name__)
 
 
-def build_assistant(config: Config, *, speak: bool = True) -> tuple[Assistant, SkillRegistry]:
+def build_assistant(
+    config: Config, *, speak: bool = True, use_llm: bool = True
+) -> tuple[Assistant, SkillRegistry]:
     os_layer = get_os_layer()
     registry = build_registry(os_layer.name, config)
+
+    llm: ChatModel | None = None
+    if use_llm and config.llm.enabled:
+        llm = OllamaChat(config.llm)
+        print(f"Загружаю модель {config.llm.model}...")
+        seconds = llm.warm_up()
+        if seconds is not None:
+            print(f"Модель загружена за {seconds:.1f} с")
+    else:
+        log.info("LLM is off, only fast commands work")
+
+    brain = Brain(
+        config=config,
+        router=Router(registry, config.router.threshold, config.router.stop_words),
+        skills=list(registry),
+        llm=llm,
+        history=History(config.llm.history_turns, config.llm.history_ttl_sec),
+    )
     assistant = Assistant(
         config=config,
-        router=Router(registry, config.router.threshold),
+        brain=brain,
         wake=WakeWordDetector(config.wake.words, config.wake.threshold),
         tts=create_tts(config.tts) if speak else NullTTS(),
         os_layer=os_layer,
@@ -28,12 +51,12 @@ def build_assistant(config: Config, *, speak: bool = True) -> tuple[Assistant, S
     return assistant, registry
 
 
-def run_voice(config: Config) -> None:
+def run_voice(config: Config, *, use_llm: bool = True) -> None:
     from myata.audio.microphone import Microphone
     from myata.stt.vosk_stt import VoskRecognizer
 
     recognizer = VoskRecognizer(config.stt.vosk_model_path, config.audio.sample_rate)
-    assistant, _ = build_assistant(config)
+    assistant, _ = build_assistant(config, use_llm=use_llm)
     mic = Microphone(config.audio.sample_rate, config.audio.block_size, config.audio.device)
 
     assistant.greet()
@@ -49,13 +72,13 @@ def run_voice(config: Config) -> None:
             if outcome is Outcome.STOP:
                 return
             if outcome is not Outcome.IGNORED:
-                mic.clear()  # skip what was recorded while Myata was talking
+                mic.clear()  # skip what was recorded while Myata was thinking and talking
                 recognizer.reset()
 
 
-def run_text(config: Config, *, speak: bool = False) -> None:
+def run_text(config: Config, *, speak: bool = False, use_llm: bool = True) -> None:
     """Chat in the console: no microphone needed, no wake word needed."""
-    assistant, _ = build_assistant(config, speak=speak)
+    assistant, _ = build_assistant(config, speak=speak, use_llm=use_llm)
     assistant.greet()
     while True:
         try:

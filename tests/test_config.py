@@ -11,11 +11,13 @@ def test_repo_config_is_valid():
     config = load_config(ROOT / "config.yaml")
     assert config.assistant.name == "Мята"
     assert any(app.name == "league_of_legends" for app in config.apps)
+    assert "{name}" in config.llm.system_prompt
 
 
 def test_defaults_without_file_content():
     config = config_from_dict({})
-    assert config.router.threshold == 0.6
+    assert config.router.threshold == 0.75
+    assert config.llm.model == "qwen3.5:4b"
     assert config.sites == ()
 
 

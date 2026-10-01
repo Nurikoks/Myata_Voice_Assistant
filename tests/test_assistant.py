@@ -1,5 +1,5 @@
 from myata.core.assistant import Outcome
-from tests.fakes import FakeOS, make_assistant
+from tests.fakes import FakeLLM, FakeOS, danger_skill, make_assistant, text_reply, tool_reply
 
 
 def test_wake_word_then_command():
@@ -13,7 +13,7 @@ def test_wake_word_then_command():
 
 
 def test_listen_window_expires():
-    assistant, tts, os_layer, clock = make_assistant()
+    assistant, _, os_layer, clock = make_assistant()
     assistant.on_utterance("мята")
     clock.now += 7
     assert assistant.on_utterance("открой ютуб") is Outcome.IGNORED
@@ -38,13 +38,61 @@ def test_stop():
     assert tts.spoken[-1] == "До связи, сэр"
 
 
-def test_unknown_command():
-    assistant, tts, _, _ = make_assistant()
-    assert assistant.handle_command("спой песню про котиков") is Outcome.HANDLED
-    assert tts.spoken[-1] == "Не понял команду"
-
-
 def test_failed_launch_is_reported_honestly():
     assistant, tts, _, _ = make_assistant(FakeOS(fail_launch=True))
     assistant.handle_command("запусти лигу легенд")
     assert tts.spoken[-1] == "Не получилось, сэр"
+
+
+def test_llm_runs_a_skill():
+    llm = FakeLLM(tool_reply("launch_discord"))
+    assistant, tts, os_layer, _ = make_assistant(llm=llm)
+    assistant.handle_command("закинь мне дискорд")
+    assert os_layer.launched == [["discord"]]
+    assert tts.spoken[-1] == "Открываю дискорд"
+
+
+def test_dialog_context_reaches_llm():
+    llm = FakeLLM(tool_reply("launch_discord"))
+    assistant, _, _, _ = make_assistant(llm=llm)
+    assistant.handle_command("открой ютуб")          # fast path, stored in history
+    assistant.handle_command("а теперь дискорд")     # goes to LLM with history
+    messages, _ = llm.requests[0]
+    assert messages[1]["content"] == "открой ютуб"
+    assert messages[2]["tool_calls"][0]["function"]["name"] == "open_youtube"
+
+
+def test_question_opens_window_without_wake_word():
+    llm = FakeLLM(text_reply("Какой фильм, сэр?"), text_reply("Отличный выбор, сэр."))
+    assistant, tts, _, clock = make_assistant(llm=llm)
+    assistant.on_utterance("мята посоветуй фильм")
+    clock.now += 3
+    assert assistant.on_utterance("что-нибудь про космос") is Outcome.HANDLED
+    assert tts.spoken[-1] == "Отличный выбор, сэр."
+
+
+def test_dangerous_skill_needs_yes():
+    calls: list[str] = []
+    assistant, tts, _, clock = make_assistant(extra_skills=[danger_skill(calls)])
+    assistant.on_utterance("мята выключи компьютер")
+    assert calls == [] and tts.spoken[-1] == "Вы уверены, сэр? Скажите да или нет."
+    clock.now += 5
+    assistant.on_utterance("да")                      # no wake word needed
+    assert calls == ["boom"]
+
+
+def test_dangerous_skill_cancelled():
+    calls: list[str] = []
+    assistant, tts, _, _ = make_assistant(extra_skills=[danger_skill(calls)])
+    assistant.handle_command("выключи компьютер")
+    assistant.handle_command("нет")
+    assert calls == [] and tts.spoken[-1] == "Отменяю"
+
+
+def test_confirmation_expires():
+    calls: list[str] = []
+    assistant, _, _, clock = make_assistant(extra_skills=[danger_skill(calls)])
+    assistant.handle_command("выключи компьютер")
+    clock.now += 60
+    assistant.handle_command("да")                    # too late, treated as a new command
+    assert calls == []

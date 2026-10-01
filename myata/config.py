@@ -19,19 +19,38 @@ class ConfigError(Exception):
     """Raised when the config file is missing or invalid."""
 
 
+DEFAULT_SYSTEM_PROMPT = """\
+Ты {name}, голосовой ассистент в стиле Джарвиса из фильма «Железный человек».
+Ты вежливая, спокойная и немного ироничная. О себе говоришь в женском роде.
+Обращайся к пользователю «сэр».
+Отвечай по-русски, коротко: одно или два предложения.
+Твой ответ будет озвучен голосом.
+Поэтому не используй markdown, списки, эмодзи, ссылки и код.
+Если пользователь просит что-то сделать и для этого есть инструмент, вызови инструмент.
+Никогда не говори, что выполнила действие, если не вызвала инструмент.
+Если подходящего инструмента нет, честно скажи, что пока так не умеешь.
+Сегодня {date}, сейчас {time}."""
+
+
 @dataclass(frozen=True)
 class AssistantPhrases:
     greeting: str = "Мята на связи"
     listening: str = "Слушаю"
-    not_understood: str = "Не понял команду"
+    not_understood: str = "Не поняла команду"
     goodbye: str = "До связи, сэр"
     failed: str = "Не получилось, сэр"
+    confirm: str = "Вы уверены, сэр? Скажите да или нет."
+    cancelled: str = "Отменяю"
+    brain_offline: str = "Мой мозг сейчас не отвечает, сэр."
 
 
 @dataclass(frozen=True)
 class AssistantConfig:
     name: str = "Мята"
     listen_window_sec: float = 6.0
+    confirm_timeout_sec: float = 15.0
+    yes_words: tuple[str, ...] = ("да", "подтверждаю", "конечно", "давай", "ага", "точно")
+    no_words: tuple[str, ...] = ("нет", "отмена", "отмени", "не")
     phrases: AssistantPhrases = field(default_factory=AssistantPhrases)
 
 
@@ -43,7 +62,25 @@ class WakeConfig:
 
 @dataclass(frozen=True)
 class RouterConfig:
-    threshold: float = 0.6
+    threshold: float = 0.75
+    stop_words: tuple[str, ...] = ("пожалуйста", "мне", "ка", "там", "сейчас", "а", "ну", "и")
+
+
+@dataclass(frozen=True)
+class LlmConfig:
+    enabled: bool = True
+    host: str = "http://localhost:11434"
+    model: str = "qwen3.5:4b"
+    think: bool | None = False
+    temperature: float = 0.6
+    num_ctx: int = 4096
+    max_tokens: int = 256
+    keep_alive: str = "30m"
+    timeout_sec: float = 60.0
+    max_reply_chars: int = 300
+    history_turns: int = 6
+    history_ttl_sec: float = 300.0
+    system_prompt: str = DEFAULT_SYSTEM_PROMPT
 
 
 @dataclass(frozen=True)
@@ -95,6 +132,7 @@ class Config:
     assistant: AssistantConfig = field(default_factory=AssistantConfig)
     wake: WakeConfig = field(default_factory=WakeConfig)
     router: RouterConfig = field(default_factory=RouterConfig)
+    llm: LlmConfig = field(default_factory=LlmConfig)
     audio: AudioConfig = field(default_factory=AudioConfig)
     stt: SttConfig = field(default_factory=SttConfig)
     tts: TtsConfig = field(default_factory=TtsConfig)
@@ -133,6 +171,8 @@ def _validate(config: Config) -> None:
     ):
         if not 0.0 <= value <= 1.0:
             raise ConfigError(f"{where} must be between 0 and 1, got {value}")
+    if config.llm.history_turns < 0 or config.llm.max_reply_chars < 20:
+        raise ConfigError("llm.history_turns must be >= 0 and llm.max_reply_chars >= 20")
     if config.tts.engine not in TTS_ENGINES:
         raise ConfigError(f"tts.engine must be one of {sorted(TTS_ENGINES)}")
     for app in config.apps:

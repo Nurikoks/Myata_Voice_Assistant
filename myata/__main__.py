@@ -1,4 +1,4 @@
-"""Command line entry point: python -m myata [--text] [--speak] [--list-skills]."""
+"""Command line entry point: python -m myata [--text] [--speak] [--no-llm] [--list-skills]."""
 
 from __future__ import annotations
 
@@ -20,6 +20,7 @@ def parse_args(argv: list[str] | None) -> argparse.Namespace:
     parser.add_argument("--config", default="config.yaml", help="path to config.yaml")
     parser.add_argument("--text", action="store_true", help="type commands instead of speaking")
     parser.add_argument("--speak", action="store_true", help="in text mode, also say answers")
+    parser.add_argument("--no-llm", action="store_true", help="fast commands only, no Ollama")
     parser.add_argument("--list-skills", action="store_true", help="print skills and exit")
     parser.add_argument("--debug", action="store_true", help="show debug logs in the console")
     parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
@@ -39,13 +40,16 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         if args.list_skills:
-            _, registry = build_assistant(config, speak=False)
+            _, registry = build_assistant(config, speak=False, use_llm=False)
             for item in registry:
-                print(f"{item.name:<28} {item.description}")
+                flags = "".join(
+                    mark for mark, on in (("!", item.dangerous), ("L", item.llm)) if on
+                )
+                print(f"{item.name:<28} {flags:<3} {item.description}")
         elif args.text:
-            run_text(config, speak=args.speak)
+            run_text(config, speak=args.speak, use_llm=not args.no_llm)
         else:
-            run_voice(config)
+            run_voice(config, use_llm=not args.no_llm)
     except KeyboardInterrupt:
         log.info("Stopped with Ctrl+C")
     except (FileNotFoundError, UnsupportedOSError) as e:

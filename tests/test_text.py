@@ -1,10 +1,28 @@
-from myata.brain.text import normalize, plural_ru
+from myata.brain.text import content_words, normalize, plural_ru, words_match
 from myata.skills.builtin.clock import format_time
 
 
 def test_normalize():
     assert normalize("  Мята, ОТКРОЙ Ютуб!  ") == "мята открой ютуб"
     assert normalize("ещё") == "еще"
+
+
+def test_content_words():
+    assert content_words("Открой, пожалуйста, ютуб", frozenset({"пожалуйста"})) == [
+        "открой",
+        "ютуб",
+    ]
+
+
+def test_words_match():
+    assert words_match("ютуб", "ютубе")
+    assert words_match("открой", "открыть")
+    assert words_match("времени", "время")
+    assert words_match("лигу", "лига")
+    assert words_match("час", "часа")
+    assert not words_match("стол", "стоп")
+    assert not words_match("стим", "стиль")
+    assert not words_match("закинь", "запусти")
 
 
 def test_plural_ru():

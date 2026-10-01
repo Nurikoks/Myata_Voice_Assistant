@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from typing import Any
 
 from myata.config import Config
 from myata.oslayer import OSLayer
 
 ALL_PLATFORMS = frozenset({"windows", "linux"})
+NO_PARAMETERS: Mapping[str, Any] = {"type": "object", "properties": {}}
 
 
 @dataclass(frozen=True)
@@ -22,7 +24,8 @@ class SkillResult:
 class SkillContext:
     os: OSLayer
     config: Config
-    text: str            # normalized command text
+    text: str                                              # normalized command text
+    args: Mapping[str, Any] = field(default_factory=dict)  # validated arguments
 
 
 Handler = Callable[[SkillContext], SkillResult]
@@ -31,8 +34,16 @@ Handler = Callable[[SkillContext], SkillResult]
 @dataclass(frozen=True)
 class Skill:
     name: str
-    description: str             # also used as the tool description for the LLM in stage 2
-    phrases: tuple[str, ...]     # example phrases for the fast path
+    description: str                 # shown to the LLM as the tool description
+    phrases: tuple[str, ...]         # example phrases for the fast path (can be empty)
     handler: Handler
     platforms: frozenset[str] = ALL_PLATFORMS
-    exact: bool = False          # only an exact phrase match triggers it
+    exact: bool = False              # fast path: only an exact phrase match triggers it
+    parameters: Mapping[str, Any] = field(default_factory=lambda: NO_PARAMETERS)
+    dangerous: bool = False          # ask for voice confirmation before running
+    confirm: str = ""                # custom confirmation question
+    llm: bool = True                 # the LLM may call this skill as a tool
+
+    @property
+    def needs_args(self) -> bool:
+        return bool(self.parameters.get("required"))

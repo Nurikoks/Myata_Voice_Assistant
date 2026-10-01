@@ -6,6 +6,9 @@ To add a skill, create a file in myata/skills/builtin/ and decorate a function:
            phrases=["который час"])
     def tell_time(ctx: SkillContext) -> SkillResult: ...
 
+Optional: parameters (JSON schema for the LLM), dangerous=True (voice confirmation),
+llm=False (fast path only), exact=True (exact phrase only), platforms={"windows"}.
+
 Every module in that folder is imported automatically, so the core does not change.
 Websites and applications come from config.yaml (see factories.py).
 """
@@ -15,10 +18,11 @@ from __future__ import annotations
 import importlib
 import logging
 import pkgutil
-from collections.abc import Callable, Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator, Mapping
+from typing import Any
 
 from myata.config import Config
-from myata.skills.base import ALL_PLATFORMS, Handler, Skill
+from myata.skills.base import ALL_PLATFORMS, NO_PARAMETERS, Handler, Skill
 from myata.skills.factories import make_app_skill, make_site_skill
 
 log = logging.getLogger(__name__)
@@ -33,6 +37,10 @@ def skill(
     phrases: Iterable[str],
     platforms: Iterable[str] = ALL_PLATFORMS,
     exact: bool = False,
+    parameters: Mapping[str, Any] = NO_PARAMETERS,
+    dangerous: bool = False,
+    confirm: str = "",
+    llm: bool = True,
 ) -> Callable[[Handler], Handler]:
     """Declare a skill. The function itself is returned unchanged."""
 
@@ -45,6 +53,10 @@ def skill(
                 handler=func,
                 platforms=frozenset(platforms),
                 exact=exact,
+                parameters=parameters,
+                dangerous=dangerous,
+                confirm=confirm,
+                llm=llm,
             )
         )
         return func
