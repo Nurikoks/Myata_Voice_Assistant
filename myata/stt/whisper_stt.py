@@ -8,6 +8,7 @@ to happen at startup, not on the user's first command.
 from __future__ import annotations
 
 import logging
+import shutil
 import time
 from collections.abc import Iterable
 from pathlib import Path
@@ -19,6 +20,15 @@ from myata.brain.text import normalize
 from myata.config import SttConfig
 
 log = logging.getLogger(__name__)
+
+# faster-whisper needs these next to model.bin. Without preprocessor_config.json it
+# assumes 80 mel bands, while large-v3 and turbo models use 128, and the text is garbage.
+SIDE_FILES = ("preprocessor_config.json", "tokenizer.json")
+RU_MODEL_DOWNLOAD = (
+    'python -c "from huggingface_hub import snapshot_download; snapshot_download('
+    "'coriollon/whisper-large-v3-turbo-russian', local_dir='models/whisper-turbo-ru', "
+    "allow_patterns=['ct2_int8_float16/*', 'preprocessor_config.json', 'tokenizer.json'])\""
+)
 
 
 class SpeechToText(Protocol):
@@ -72,7 +82,8 @@ class WhisperRecognizer:
         if audio.size == 0:
             return ""
         started = time.perf_counter()
-        text = clean_transcript(self._run(audio), self._config.hallucinations)
+        prompts = (self._config.hotwords, self._config.initial_prompt)
+        text = clean_transcript(self._run(audio), self._config.hallucinations, prompts)
         log.info(
             "Whisper: %.1f s of audio in %.2f s: %r",
             audio.size / self._sample_rate,
@@ -88,6 +99,7 @@ class WhisperRecognizer:
             language=self._config.language,
             beam_size=self._config.beam_size,
             initial_prompt=self._config.initial_prompt,
+            hotwords=self._config.hotwords,  # vocabulary hints: "Мята, ютуб, дискорд..."
             condition_on_previous_text=False,
             without_timestamps=True,
             vad_filter=False,  # our own VAD already cut the phrase
@@ -100,24 +112,53 @@ def model_source(model: str) -> str:
     """A local folder, or a name/repo id that faster-whisper downloads itself."""
     path = Path(model)
     if path.is_dir():
+        complete_model_folder(path)
         return str(path)
     looks_local = path.is_absolute() or path.parts[0] in ("models", ".", "..") or "\\" in model
     if looks_local:
         raise FileNotFoundError(
-            f"Whisper model folder not found: '{path.resolve()}'. Download it with:\n"
-            "python -c \"from faster_whisper import download_model; "
-            f"download_model('large-v3-turbo', output_dir='{path.as_posix()}')\""
+            f"Whisper model folder not found: '{path.resolve()}'.\n"
+            f"Russian turbo model: {RU_MODEL_DOWNLOAD}\n"
+            "Or set stt.model in config.yaml to a name like large-v3-turbo."
         )
     return model
 
 
-def clean_transcript(text: str, hallucinations: Iterable[str]) -> str:
-    """Drop the phrases Whisper invents on silence or noise ("Продолжение следует...")."""
+def complete_model_folder(path: Path) -> None:
+    """Copy tokenizer and preprocessor files from the parent folder if they are missing.
+
+    Some repos keep the CTranslate2 weights in a subfolder (ct2_int8_float16/) and
+    these two files in the repo root.
+    """
+    for name in SIDE_FILES:
+        target, source = path / name, path.parent / name
+        if not target.exists() and source.is_file():
+            shutil.copyfile(source, target)
+            log.info("Copied %s into %s", name, path)
+    if not (path / "preprocessor_config.json").exists():
+        log.warning(
+            "%s has no preprocessor_config.json; for large-v3 / turbo models "
+            "recognition will be garbage", path,
+        )
+
+
+def clean_transcript(
+    text: str, hallucinations: Iterable[str], prompts: Iterable[str | None] = ()
+) -> str:
+    """Drop the phrases Whisper invents on silence or noise ("Продолжение следует...").
+
+    With hotwords or an initial prompt Whisper sometimes just repeats that hint
+    on silence; such a result is dropped too.
+    """
     flat = normalize(text)
     if not flat:
         return ""
     for phrase in hallucinations:
         if normalize(phrase) in flat:
             log.info("Dropped a Whisper hallucination: %r", text)
+            return ""
+    for prompt in prompts:
+        if prompt and len(flat.split()) >= 3 and flat in normalize(prompt):
+            log.info("Dropped an echo of the prompt: %r", text)
             return ""
     return text

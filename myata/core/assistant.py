@@ -19,6 +19,7 @@ from myata.brain.text import normalize
 from myata.config import Config
 from myata.oslayer import OSLayer
 from myata.skills.base import SkillContext, SkillResult
+from myata.skills.builtin.control import REPEAT_SKILL
 from myata.tts.base import TextToSpeech
 from myata.wake.detector import WakeWordDetector
 
@@ -56,6 +57,7 @@ class Assistant:
         self._active_until = 0.0
         self._pending: tuple[str, tuple[SkillCall, ...]] | None = None
         self._pending_until = 0.0
+        self._last_calls: tuple[SkillCall, ...] = ()  # for "ещё раз"
 
     # ---------- talking ----------
 
@@ -135,6 +137,9 @@ class Assistant:
                 self._listen_without_wake_word(self._config.assistant.listen_window_sec)
             return Outcome.HANDLED
         calls = decision.calls if isinstance(decision, MultiCall) else (decision,)
+        if any(call.skill.name == REPEAT_SKILL for call in calls) and self._last_calls:
+            log.info("Repeating: %s", _names(self._last_calls))
+            calls = self._last_calls
         return self._start(text, calls)
 
     # ---------- skills ----------
@@ -181,6 +186,11 @@ class Assistant:
         phrased = speech is not None
         if speech is None:
             speech = join_sentences(result.speech for _, result in results)
+
+        if all(result.ok and not result.stop for _, result in results) and not any(
+            call.skill.dangerous for call in calls
+        ):
+            self._last_calls = calls  # dangerous actions are never repeated by "ещё раз"
 
         self.say(speech)
         short = [Action(a.name, a.args, a.result[:HISTORY_RESULT_CHARS]) for a in actions]

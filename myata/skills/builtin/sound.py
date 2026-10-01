@@ -41,9 +41,12 @@ def _mute(ctx: SkillContext, muted: bool) -> SkillResult:
 @skill(
     name="volume_up",
     description="Make the sound louder",
-    phrases=["громче", "погромче", "сделай громче", "прибавь звук", "увеличь громкость"],
+    phrases=[
+        "громче", "погромче", "сделай громче", "прибавь звук", "увеличь громкость",
+        "повысь громкость", "подними громкость",
+    ],
     requires=[VOLUME],
-    llm=False,  # the LLM uses set_volume instead, fewer tools for a small model
+    tool=False,  # not listed for the LLM (it has set_volume), fewer tools for a small model
 )
 def volume_up(ctx: SkillContext) -> SkillResult:
     return _change_volume(ctx, ctx.config.skills.volume_step)
@@ -52,9 +55,12 @@ def volume_up(ctx: SkillContext) -> SkillResult:
 @skill(
     name="volume_down",
     description="Make the sound quieter",
-    phrases=["тише", "потише", "сделай тише", "убавь звук", "уменьши громкость"],
+    phrases=[
+        "тише", "потише", "сделай тише", "убавь звук", "уменьши громкость",
+        "понизь громкость", "опусти громкость",
+    ],
     requires=[VOLUME],
-    llm=False,
+    tool=False,
 )
 def volume_down(ctx: SkillContext) -> SkillResult:
     return _change_volume(ctx, -ctx.config.skills.volume_step)
@@ -65,7 +71,7 @@ def volume_down(ctx: SkillContext) -> SkillResult:
     description="Mute the sound",
     phrases=["выключи звук", "отключи звук", "без звука"],
     requires=[VOLUME],
-    llm=False,
+    tool=False,
 )
 def mute_sound(ctx: SkillContext) -> SkillResult:
     return _mute(ctx, True)
@@ -76,7 +82,7 @@ def mute_sound(ctx: SkillContext) -> SkillResult:
     description="Unmute the sound",
     phrases=["включи звук", "верни звук"],
     requires=[VOLUME],
-    llm=False,
+    tool=False,
 )
 def unmute_sound(ctx: SkillContext) -> SkillResult:
     return _mute(ctx, False)
@@ -88,7 +94,9 @@ def unmute_sound(ctx: SkillContext) -> SkillResult:
         "Change the computer's sound volume (громкость, звук). Give level for an exact "
         "value, or direction to make it a bit louder or quieter, or mute to turn sound off/on."
     ),
-    phrases=[],
+    # Only used by the fast path together with a number: "громкость 30", "сделай звук на 50"
+    phrases=["громкость", "звук", "сделай громкость", "поставь громкость", "сделай звук"],
+    number_arg="level",
     requires=[VOLUME],
     parameters={
         "type": "object",
@@ -143,7 +151,7 @@ MEDIA_REPLIES = {
     description="Pause or resume music or video",
     phrases=["пауза", "поставь на паузу", "сними с паузы", "плей"],
     requires=[MEDIA],
-    llm=False,
+    tool=False,
 )
 def media_play_pause(ctx: SkillContext) -> SkillResult:
     return _press(ctx, "play_pause", MEDIA_REPLIES["play_pause"])
@@ -154,7 +162,7 @@ def media_play_pause(ctx: SkillContext) -> SkillResult:
     description="Next track",
     phrases=["следующий трек", "следующая песня", "переключи трек"],
     requires=[MEDIA],
-    llm=False,
+    tool=False,
 )
 def media_next(ctx: SkillContext) -> SkillResult:
     return _press(ctx, "next", MEDIA_REPLIES["next"])
@@ -165,7 +173,7 @@ def media_next(ctx: SkillContext) -> SkillResult:
     description="Previous track",
     phrases=["предыдущий трек", "предыдущая песня"],
     requires=[MEDIA],
-    llm=False,
+    tool=False,
 )
 def media_previous(ctx: SkillContext) -> SkillResult:
     return _press(ctx, "previous", MEDIA_REPLIES["previous"])

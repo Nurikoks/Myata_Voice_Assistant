@@ -53,7 +53,12 @@ class SileroTTS:
         text = prepare_for_speech(text, self._replacements, self._speller)
         if not text:
             return
+        started = time.perf_counter()
         audio = self._synthesize(text)
+        log.info(
+            "Silero: %d chars in %.2f s, %.1f s of speech",
+            len(text), time.perf_counter() - started, len(audio) / self._config.sample_rate,
+        )
         self._player.play(audio, self._config.sample_rate)
 
     def _synthesize(self, text: str):

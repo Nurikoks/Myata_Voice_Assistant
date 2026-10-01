@@ -57,8 +57,18 @@ def test_prompt_tools_and_history():
 
     messages, tools = llm.requests[1]
     system = messages[0]["content"]
-    assert "Мята" in system and "1 октября 2026, четверг" in system and "14:05" in system
+    assert "Мята" in system and "1 октября 2026, четверг" in system
+    assert "14:05" not in system  # the time would break Ollama's prompt cache every minute
     assert [m["content"] for m in messages[1:]] == ["как дела", "Хорошо, сэр.", "точно?"]
     names = {t["function"]["name"] for t in tools}
     assert "web_search" in names and "open_youtube" in names
     assert "shutdown_assistant" not in names  # fast path only
+
+
+def test_time_placeholder_still_works():
+    from datetime import datetime
+
+    from myata.brain.prompt import build_system_prompt
+
+    prompt = build_system_prompt("{name}: {time}", "Мята", datetime(2026, 10, 1, 9, 7))
+    assert prompt == "Мята: 09:07"

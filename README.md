@@ -13,9 +13,10 @@ Simple commands run instantly. Free-form phrases ("закинь мне ютуб"
 1. A small Vosk model with a one-word grammar listens only for "мята".
 2. Silero VAD records the phrase until you stop talking (the last second before
    the wake word is kept, so "мята, открой ютуб" in one breath is not cut).
-3. faster-whisper (large-v3-turbo, GPU) turns the phrase into text and checks
-   that the name is really there, which filters out false alarms.
-4. The fast router or the LLM decides what to do, Silero TTS answers.
+3. faster-whisper (a Russian fine-tune of large-v3-turbo, GPU) turns the phrase
+   into text and checks that the name is really there, which filters out false alarms.
+4. The fast router (word forms via pymorphy3, numbers as arguments) handles
+   known commands instantly; everything else goes to the LLM. Silero TTS answers.
 
 While Myata thinks or talks, the microphone is muted. If she asks a question
 or needs "да"/"нет", you can answer without saying her name.
@@ -28,7 +29,7 @@ or needs "да"/"нет", you can answer without saying her name.
 - notes ("запиши купить молоко", "что в заметках"), read or translate the clipboard,
   screenshots
 - scenes: one phrase runs several steps, e.g. "игровой режим" starts Discord and Steam
-- several actions at once: "открой дискорд и стим"
+- several actions at once: "открой дискорд и стим", and "ещё раз" repeats the last one
 
 Skills that return information (notes, clipboard) send it back to the LLM, which
 answers the actual question ("переведи то, что я скопировал"). Without Ollama they
@@ -61,8 +62,12 @@ Download the models into `models/`:
 New-Item -ItemType Directory -Force models\silero | Out-Null
 Invoke-WebRequest https://raw.githubusercontent.com/snakers4/silero-vad/master/src/silero_vad/data/silero_vad.jit -OutFile models\silero\silero_vad.jit
 Invoke-WebRequest https://models.silero.ai/models/tts/ru/v5_ru.pt -OutFile models\silero\v5_ru.pt
-python -c "from faster_whisper import download_model; download_model('large-v3-turbo', output_dir='models/whisper-large-v3-turbo')"
+python -c "from huggingface_hub import snapshot_download; snapshot_download('coriollon/whisper-large-v3-turbo-russian', local_dir='models/whisper-turbo-ru', allow_patterns=['ct2_int8_float16/*', 'preprocessor_config.json', 'tokenizer.json'])"
 ```
+
+The Whisper model is a Russian fine-tune of large-v3-turbo
+([coriollon/whisper-large-v3-turbo-russian](https://huggingface.co/coriollon/whisper-large-v3-turbo-russian),
+Apache 2.0). The stock `large-v3-turbo` also works, see `stt.model` in `config.yaml`.
 
 And `vosk-model-small-ru-0.22` from https://alphacephei.com/vosk/models,
 unzipped to `models/vosk-model-small-ru-0.22`.

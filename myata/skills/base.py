@@ -43,8 +43,10 @@ class Skill:
     parameters: Mapping[str, Any] = field(default_factory=lambda: NO_PARAMETERS)
     dangerous: bool = False          # ask for voice confirmation before running
     confirm: str = ""                # custom confirmation question
-    llm: bool = True                 # the LLM may call this skill as a tool
+    llm: bool = True                 # the LLM may call this skill (False: never, e.g. "стоп")
+    tool: bool = True                # listed in the LLM tools; hidden ones keep the list short
     requires: frozenset[str] = frozenset()  # OS capabilities it needs (oslayer.base)
+    number_arg: str | None = None    # fast path: a number in the command goes to this argument
 
     @property
     def needs_args(self) -> bool:

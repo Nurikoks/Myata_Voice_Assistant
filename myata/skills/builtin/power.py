@@ -36,7 +36,10 @@ def _power(ctx: SkillContext, action: str, reply: str) -> SkillResult:
 
 @skill(
     name="shutdown_computer",
-    description="Shut down (turn off) the computer",
+    description=(
+        "Shut down (turn off) the whole computer. Only when the user clearly says "
+        "компьютер or ПК, never when they ask to turn off the assistant herself."
+    ),
     phrases=["выключи компьютер", "выключи пк", "заверши работу компьютера"],
     requires=[POWER],
     dangerous=True,
@@ -48,7 +51,7 @@ def shutdown_computer(ctx: SkillContext) -> SkillResult:
 
 @skill(
     name="restart_computer",
-    description="Restart (reboot) the computer",
+    description="Restart (reboot) the whole computer, only when the user says компьютер or ПК",
     phrases=["перезагрузи компьютер", "перезагрузи пк", "перезагрузка компьютера"],
     requires=[POWER],
     dangerous=True,

@@ -136,8 +136,17 @@ class VoiceLoop:
         self.phase = Phase.BUSY
         self._mic.mute()
         outcome = Outcome.IGNORED
+        started = time.perf_counter()
         try:
-            outcome = self._dispatch(self._transcribe(audio))
+            text = self._transcribe(audio)
+            recognized = time.perf_counter()
+            outcome = self._dispatch(text)
+            # One line per phrase, to see where the time goes. "reply" includes the
+            # brain (fast path or LLM), the skills and speaking the answer out loud.
+            log.info(
+                "Timing: STT %.2f s, reply %.2f s (%s)",
+                recognized - started, time.perf_counter() - recognized, outcome.name,
+            )
         finally:
             if outcome is not Outcome.STOP:
                 self._sleep(self._unmute_delay)  # let the speaker's echo die out

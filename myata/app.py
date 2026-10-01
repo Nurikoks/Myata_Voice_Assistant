@@ -4,50 +4,76 @@ from __future__ import annotations
 
 import logging
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 from myata.brain.brain import Brain
 from myata.brain.history import History
 from myata.brain.llm import ChatModel, OllamaChat
+from myata.brain.morph import Morph
 from myata.brain.router import Router
 from myata.config import Config
 from myata.core.assistant import Assistant, Outcome
 from myata.oslayer import get_os_layer
 from myata.skills.registry import SkillRegistry, build_registry
-from myata.tts import NullTTS, create_tts
+from myata.tts import NullTTS, TextToSpeech, create_tts
 from myata.wake.detector import WakeWordDetector
 
 log = logging.getLogger(__name__)
 
 
+def load_llm(config: Config) -> ChatModel | None:
+    """Connect to Ollama and load the model into memory (it runs in its own process)."""
+    if not config.llm.enabled:
+        log.info("LLM is off in config.yaml, only fast commands work")
+        return None
+    llm = OllamaChat(config.llm)
+    seconds = llm.warm_up()
+    if seconds is None:
+        print(f"Модель {config.llm.model} недоступна, работают только быстрые команды.")
+        return llm
+    share = llm.gpu_share()
+    where = "" if share is None else f", {share:.0%} на GPU"
+    print(f"Модель {config.llm.model} загружена за {seconds:.1f} с{where}")
+    if share is not None and share < 0.99:
+        print(
+            "Внимание: часть модели работает на CPU, ответы будут медленными. "
+            "Уменьшите llm.num_ctx или освободите видеопамять (игры, браузер)."
+        )
+        log.warning("LLM is only %.0f%% on the GPU", share * 100)
+    return llm
+
+
+def load_tts(config: Config) -> TextToSpeech:
+    started = time.perf_counter()
+    tts = create_tts(config.tts, config.audio.output_device)
+    print(f"Голос готов за {time.perf_counter() - started:.1f} с")
+    return tts
+
+
 def build_assistant(
-    config: Config, *, speak: bool = True, use_llm: bool = True
+    config: Config,
+    *,
+    speak: bool = True,
+    use_llm: bool = True,
+    llm: ChatModel | None = None,
+    tts: TextToSpeech | None = None,
 ) -> tuple[Assistant, SkillRegistry]:
+    """Build the assistant. llm and tts can be passed in when they were loaded already."""
     os_layer = get_os_layer()
     capabilities = os_layer.capabilities()
     log.info("OS %s can do: %s", os_layer.name, ", ".join(sorted(capabilities)) or "nothing extra")
     registry = build_registry(os_layer.name, config, capabilities=capabilities)
 
-    llm: ChatModel | None = None
-    if use_llm and config.llm.enabled:
-        llm = OllamaChat(config.llm)
-        print(f"Загружаю модель {config.llm.model}...")
-        seconds = llm.warm_up()
-        if seconds is not None:
-            print(f"Модель загружена за {seconds:.1f} с")
-    else:
-        log.info("LLM is off, only fast commands work")
-
-    if speak:
-        print("Загружаю голос...")
-        started = time.perf_counter()
-        tts = create_tts(config.tts, config.audio.output_device)
-        print(f"Голос готов за {time.perf_counter() - started:.1f} с")
-    else:
-        tts = NullTTS()
+    if llm is None and use_llm:
+        llm = load_llm(config)
+    if not use_llm:
+        llm = None
+    if tts is None:
+        tts = load_tts(config) if speak else NullTTS()
 
     brain = Brain(
         config=config,
-        router=Router(registry, config.router.threshold, config.router.stop_words),
+        router=Router(registry, config.router.threshold, config.router.stop_words, Morph.load()),
         skills=list(registry),
         llm=llm,
         history=History(config.llm.history_turns, config.llm.history_ttl_sec),
@@ -75,15 +101,24 @@ def run_voice(config: Config, *, use_llm: bool = True) -> None:
     from myata.wake.spotter import VoskWakeSpotter
 
     rate = config.audio.sample_rate
-    spotter = VoskWakeSpotter(config.wake.vosk_model_path, rate, config.wake.words)
-    vad = SileroVad(config.vad.model_path, rate)
-
-    print("Загружаю распознавание речи...")
+    started = time.perf_counter()
+    print("Загружаю модели...")
     stt = WhisperRecognizer(config.stt, rate)
-    seconds = stt.load()
-    print(f"Whisper готов за {seconds:.1f} с ({stt.device})")
 
-    assistant, _ = build_assistant(config, use_llm=use_llm)
+    # The slow parts load at the same time: Ollama works in its own process, and
+    # CTranslate2 and torch release the GIL while they read files and set up the GPU.
+    with ThreadPoolExecutor(max_workers=3, thread_name_prefix="load") as pool:
+        llm_future = pool.submit(load_llm, config) if use_llm else None
+        stt_future = pool.submit(stt.load)
+        tts_future = pool.submit(load_tts, config)
+        spotter = VoskWakeSpotter(config.wake.vosk_model_path, rate, config.wake.words)
+        vad = SileroVad(config.vad.model_path, rate)
+        print(f"Whisper готов за {stt_future.result():.1f} с ({stt.device})")
+        llm = llm_future.result() if llm_future else None
+        tts = tts_future.result()
+    print(f"Всё загружено за {time.perf_counter() - started:.1f} с")
+
+    assistant, _ = build_assistant(config, use_llm=use_llm, llm=llm, tts=tts)
     recorder = PhraseRecorder(
         vad,
         sample_rate=rate,

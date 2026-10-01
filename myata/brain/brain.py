@@ -63,7 +63,7 @@ class Brain:
         self._history = history
         self._now = now
         self._skills = {s.name: s for s in skills}
-        self._tools = [tool_spec(s) for s in self._skills.values() if s.llm]
+        self._tools = [tool_spec(s) for s in self._skills.values() if s.llm and s.tool]
 
     @property
     def has_llm(self) -> bool:
@@ -72,8 +72,16 @@ class Brain:
     def decide(self, text: str) -> Decision:
         match = self._router.match(text)
         if match is not None:
-            log.info("Fast path: %s (score %.2f) for %r", match.skill.name, match.score, text)
-            return SkillCall(match.skill, {}, "fast")
+            try:
+                args = validate_args(match.skill.parameters, match.args)
+            except ArgsError as e:
+                log.info("Fast path match %s rejected: %s", match.skill.name, e)
+            else:
+                log.info(
+                    "Fast path: %s %s (score %.2f) for %r",
+                    match.skill.name, args, match.score, text,
+                )
+                return SkillCall(match.skill, args, "fast")
 
         phrases = self._config.assistant.phrases
         if self._llm is None:
@@ -99,6 +107,8 @@ class Brain:
         calls: list[SkillCall] = []
         seen: set[str] = set()
         for call in tool_calls:
+            # Hidden skills (tool=False) are accepted: the model learns their names
+            # from the dialog history. Only llm=False skills are forbidden.
             item = self._skills.get(call.name)
             if item is None or not item.llm:
                 log.warning("LLM called an unknown or forbidden tool: %s", call.name)

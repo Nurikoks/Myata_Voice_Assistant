@@ -7,8 +7,10 @@ To add a skill, create a file in myata/skills/builtin/ and decorate a function:
     def tell_time(ctx: SkillContext) -> SkillResult: ...
 
 Optional: parameters (JSON schema for the LLM), dangerous=True (voice confirmation),
-llm=False (fast path only), exact=True (exact phrase only), platforms={"windows"},
-requires={VOLUME} (registered only if the OS layer can do it).
+llm=False (the LLM may never call it), tool=False (not listed for the LLM, but allowed
+if it names it), exact=True (exact phrase only), platforms={"windows"},
+requires={VOLUME} (registered only if the OS layer can do it), number_arg="level"
+(the fast path passes a number from the command, "громкость 30").
 
 Every module in that folder is imported automatically, so the core does not change.
 Websites, applications and scenes come from config.yaml (see factories.py).
@@ -42,7 +44,9 @@ def skill(
     dangerous: bool = False,
     confirm: str = "",
     llm: bool = True,
+    tool: bool = True,
     requires: Iterable[str] = (),
+    number_arg: str | None = None,
 ) -> Callable[[Handler], Handler]:
     """Declare a skill. The function itself is returned unchanged."""
 
@@ -59,7 +63,9 @@ def skill(
                 dangerous=dangerous,
                 confirm=confirm,
                 llm=llm,
+                tool=tool,
                 requires=frozenset(requires),
+                number_arg=number_arg,
             )
         )
         return func

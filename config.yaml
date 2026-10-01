@@ -28,7 +28,7 @@ wake:
 # Fast path: commands that clearly match an example phrase run instantly without the LLM.
 router:
   threshold: 0.75             # 1.0 = every word of the phrase found and nothing extra
-  stop_words: [пожалуйста, мне, ка, там, сейчас, а, ну, и]
+  stop_words: [пожалуйста, мне, ка, там, сейчас, а, ну, и, на, еще, процент]
 
 llm:
   enabled: true
@@ -44,7 +44,9 @@ llm:
   history_turns: 6            # how many past exchanges the LLM sees
   history_ttl_sec: 300        # forget the dialog after 5 minutes of silence
   max_tool_calls: 3           # "открой дискорд и стим" runs up to this many skills at once
-  # Placeholders: {name}, {date}, {time}
+  # Placeholders: {name}, {date}, {time}. Avoid {time}: it changes every minute, and
+  # Ollama then has to re-read the whole prompt with all tools instead of using its cache.
+  # Questions about the time are answered by the tell_time skill anyway.
   system_prompt: |
     Ты {name}, голосовой ассистент в стиле Джарвиса из фильма «Железный человек».
     Ты вежливая, спокойная и немного ироничная. О себе говоришь в женском роде.
@@ -54,9 +56,12 @@ llm:
     Поэтому не используй markdown, списки, эмодзи, ссылки и код.
     Если пользователь просит что-то сделать и для этого есть инструмент, вызови инструмент.
     Никогда не говори, что выполнила действие, если не вызвала инструмент.
+    Если пользователь просит что-то сделать, выполни это сразу, даже если похожее уже делала.
+    Не спорь и не отговаривай.
     Если пользователь просит сразу несколько действий, вызови несколько инструментов.
+    Если просят выключить тебя саму, ответь: «Скажите: Мята, отключись».
     Если подходящего инструмента нет, честно скажи, что пока так не умеешь.
-    Сегодня {date}, сейчас {time}.
+    Сегодня {date}.
 
 audio:
   sample_rate: 16000          # must be 16000 for Silero VAD and Whisper
@@ -69,14 +74,16 @@ audio:
 vad:
   model_path: models/silero/silero_vad.jit
   threshold: 0.5              # speech probability for one 32 ms frame
-  silence_ms: 700             # this much silence ends the phrase
+  silence_ms: 600             # this much silence ends the phrase (more = fewer cut-offs)
   min_speech_ms: 200          # shorter sounds are treated as noise
   start_timeout_sec: 5        # after the wake word: give up if nothing is said
   max_phrase_sec: 15
 
 # Speech recognition (faster-whisper)
 stt:
-  model: models/whisper-large-v3-turbo   # local folder, or a name like large-v3-turbo
+  # Russian fine-tune of large-v3-turbo (Apache 2.0). The stock model also works:
+  # models/whisper-large-v3-turbo, or the name large-v3-turbo.
+  model: models/whisper-turbo-ru/ct2_int8_float16
   download_root: models/whisper          # where named models are downloaded
   device: cuda                # cuda | cpu
   compute_type: int8_float16  # about 1.5 GB of VRAM for large-v3-turbo
@@ -84,7 +91,9 @@ stt:
   cpu_fallback: true          # switch to CPU if CUDA does not start
   language: ru
   beam_size: 5                # 1 is a bit faster, 5 is a bit more accurate
-  initial_prompt: null        # e.g. "Мята, открой ютуб, запусти дискорд." to bias the vocabulary
+  initial_prompt: null
+  # Words Whisper should expect. Keep it short: a long list makes it "hear" these words.
+  hotwords: Мята, ютуб, дискорд, стим, блокнот, громкость, громче, тише, заметки, скриншот, буфер обмена
   hallucinations:             # phrases Whisper invents on noise; such results are dropped
     - продолжение следует
     - субтитры сделал

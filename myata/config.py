@@ -30,9 +30,12 @@ DEFAULT_SYSTEM_PROMPT = """\
 Поэтому не используй markdown, списки, эмодзи, ссылки и код.
 Если пользователь просит что-то сделать и для этого есть инструмент, вызови инструмент.
 Никогда не говори, что выполнила действие, если не вызвала инструмент.
+Если пользователь просит что-то сделать, выполни это сразу, даже если похожее уже делала.
+Не спорь и не отговаривай.
 Если пользователь просит сразу несколько действий, вызови несколько инструментов.
+Если просят выключить тебя саму, ответь: «Скажите: Мята, отключись».
 Если подходящего инструмента нет, честно скажи, что пока так не умеешь.
-Сегодня {date}, сейчас {time}."""
+Сегодня {date}."""
 
 
 @dataclass(frozen=True)
@@ -70,7 +73,9 @@ class WakeConfig:
 @dataclass(frozen=True)
 class RouterConfig:
     threshold: float = 0.75
-    stop_words: tuple[str, ...] = ("пожалуйста", "мне", "ка", "там", "сейчас", "а", "ну", "и")
+    stop_words: tuple[str, ...] = (
+        "пожалуйста", "мне", "ка", "там", "сейчас", "а", "ну", "и", "на", "еще", "процент",
+    )
 
 
 @dataclass(frozen=True)
@@ -104,7 +109,7 @@ class AudioConfig:
 class VadConfig:
     model_path: str = "models/silero/silero_vad.jit"
     threshold: float = 0.5
-    silence_ms: int = 700
+    silence_ms: int = 600
     min_speech_ms: int = 200
     start_timeout_sec: float = 5.0
     max_phrase_sec: float = 15.0
@@ -123,7 +128,7 @@ DEFAULT_HALLUCINATIONS = (
 
 @dataclass(frozen=True)
 class SttConfig:
-    model: str = "models/whisper-large-v3-turbo"
+    model: str = "models/whisper-turbo-ru/ct2_int8_float16"
     download_root: str = "models/whisper"
     device: str = "cuda"
     compute_type: str = "int8_float16"
@@ -132,6 +137,7 @@ class SttConfig:
     language: str = "ru"
     beam_size: int = 5
     initial_prompt: str | None = None
+    hotwords: str | None = None
     hallucinations: tuple[str, ...] = DEFAULT_HALLUCINATIONS
 
 
@@ -369,4 +375,3 @@ def _is_instance(value: object, tp: type) -> bool:
     if isinstance(value, bool) and tp is not bool:
         return False
     return isinstance(value, tp)
-

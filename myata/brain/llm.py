@@ -113,6 +113,26 @@ class OllamaChat:
         return elapsed
 
 
+    def gpu_share(self) -> float | None:
+        """Part of the loaded model that sits in VRAM (1.0 = fully on the GPU).
+
+        Below 1.0 Ollama has moved layers to the CPU, and answers get several times slower.
+        Returns None if the model is not loaded or Ollama does not say.
+        """
+        try:
+            response = self._client.ps()
+        except Exception as e:
+            log.debug("ollama ps failed: %s", e)
+            return None
+        for model in getattr(response, "models", None) or []:
+            name = getattr(model, "model", None) or getattr(model, "name", "")
+            if name in (self._model, f"{self._model}:latest"):
+                size = getattr(model, "size", 0) or 0
+                vram = getattr(model, "size_vram", 0) or 0  # missing when 0
+                return vram / size if size else None
+        return None
+
+
 def _describe(error: Exception, timeout: float) -> str:
     name = type(error).__name__
     if "Timeout" in name:
